@@ -1,6 +1,6 @@
-# subdex — Documentation
+# palletide — Documentation
 
-In-depth documentation for the `subdex` Substrate indexer framework. If you just
+In-depth documentation for the `palletide` Substrate indexer framework. If you just
 want to *use* it, start with the [top-level README](../README.md); these docs are
 for understanding **how it works** and **why it exists**.
 
@@ -56,7 +56,7 @@ manually.**
 
 ### Why this project was built
 
-`subdex` was built to make those two problems **structurally impossible**, by
+`palletide` was built to make those two problems **structurally impossible**, by
 inverting both assumptions:
 
 - **Decode every block against _its own_ runtime metadata**, not a pinned one.
@@ -64,7 +64,7 @@ inverting both assumptions:
   under and decodes against that. A runtime upgrade in the middle of a backfill
   is handled transparently — blocks before the upgrade decode under the old
   metadata, blocks after under the new, with zero code changes. (See
-  [`subdex-source`](./code-walkthrough.md#subdex-source) and the per-block
+  [`palletide-source`](./code-walkthrough.md#palletide-source) and the per-block
   `spec_version` carried in the data model.)
 
 - **Be written in Rust, the same language as Substrate.** This removes the
@@ -74,7 +74,7 @@ inverting both assumptions:
   than re-deriving them. No `typegen`, no drift.
 
 This is the same realization the Subsquid team themselves reached — they rewrote
-their performance-critical data layer in Rust. `subdex` takes that to its
+their performance-critical data layer in Rust. `palletide` takes that to its
 conclusion: a **Rust-native, code-first indexer framework** where the indexer and
 the chain speak the same language and the indexer is correct across upgrades by
 construction.
@@ -83,15 +83,15 @@ construction.
 
 Beyond the two core problems, a usable indexer framework has to be:
 
-| Goal | How subdex achieves it |
+| Goal | How palletide achieves it |
 |---|---|
 | **Resumable** | A `(height, hash)` cursor in Postgres; on restart the engine resumes from `cursor + 1`. |
 | **Reorg-safe** | Each block's `parent_hash` is validated against the stored hash of the previous height; on a mismatch the diverged tail is rolled back and re-indexed. |
 | **Atomic** | A handler's writes and the cursor advance commit on the *same* database transaction — a block is either fully indexed or not at all; a crash never leaves a half-written block. |
-| **Ergonomic (code-first)** | You implement one `Handler` trait in plain Rust and own your tables — full type safety and the entire Rust ecosystem. An **optional** `schema.graphql` (via `subdex-codegen`) generates the structs, migrations, upserts, and GraphQL API, but decoding always stays dynamic. |
+| **Ergonomic (code-first)** | You implement one `Handler` trait in plain Rust and own your tables — full type safety and the entire Rust ecosystem. An **optional** `schema.graphql` (via `palletide-codegen`) generates the structs, migrations, upserts, and GraphQL API, but decoding always stays dynamic. |
 | **Composable** | Ingestion, storage, and serving are traits — each is swappable (e.g. the SQD-portal source, or a `HybridSource`) without touching your handlers. |
 
-### What subdex is *not*
+### What palletide is *not*
 
 - It is **not** *only* schema-first. The default path is plain Rust — you write a
   `Handler` and own your tables. A `schema.graphql` is an **optional** convenience

@@ -1,11 +1,11 @@
-//! Example subdex indexer with **two pallets, two handlers**.
+//! Example palletide indexer with **two pallets, two handlers**.
 //!
 //! Demonstrates the common real-world shape the single-handler `transfers`
 //! example doesn't cover:
 //!
-//! - two independent [`Handler`](subdex::Handler)s — [`BalancesHandler`] and
+//! - two independent [`Handler`](palletide::Handler)s — [`BalancesHandler`] and
 //!   [`AssetsHandler`] — each owning its own table,
-//! - both registered on **one** [`Processor`](subdex::Processor), so their writes
+//! - both registered on **one** [`Processor`](palletide::Processor), so their writes
 //!   and the cursor advance all commit on the **same transaction** (atomic across
 //!   handlers),
 //! - two decode styles: `BalancesHandler` uses the simple per-block

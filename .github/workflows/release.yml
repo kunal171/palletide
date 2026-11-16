@@ -56,8 +56,8 @@ jobs:
           # Order matters: each crate must already be on the index before a crate
           # that depends on it. The sleep lets the sparse index catch up — without
           # it the next resolve races the publish it depends on.
-          for c in subdex-core subdex-source subdex-store subdex \
-                   subdex-graphql subdex-config subdex-codegen; do
+          for c in palletide-core palletide-source palletide-store palletide \
+                   palletide-graphql palletide-config palletide-codegen; do
             echo "::group::publish $c"
             # Tolerate an already-published version so a re-run of a partially
             # failed release is idempotent rather than hard-failing on crate 1.
@@ -90,10 +90,10 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Build example (release)
-        run: cargo build --release -p subdex-example-transfers --bin transfers --target ${{ matrix.target }}
+        run: cargo build --release -p palletide-example-transfers --bin transfers --target ${{ matrix.target }}
       - name: Package
         run: |
-          tarball="subdex-transfers-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
+          tarball="palletide-transfers-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
           tar -C "target/${{ matrix.target }}/release" -czf "$tarball" transfers
           echo "ARTIFACT=$tarball" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@v4

@@ -2,9 +2,9 @@
 //! events into a `transfers` table.
 
 use async_trait::async_trait;
-use subdex::{Block, Handler, Result, Store, SubdexError};
-use subdex_source::value::{field_account_ss58, field_u128};
-use subdex_store::PgStore;
+use palletide::{Block, Handler, PalletideError, Result, Store};
+use palletide_source::value::{field_account_ss58, field_u128};
+use palletide_store::PgStore;
 
 /// Indexes asset deposit/withdraw events. Each matching event becomes one row in
 /// the handler's own `transfers` table; the writes go on the processor's
@@ -41,7 +41,7 @@ impl Handler<PgStore> for TransfersHandler {
         )
         .execute(store.pool())
         .await
-        .map_err(|e| SubdexError::Handler(format!("create transfers table: {e}")))?;
+        .map_err(|e| PalletideError::Handler(format!("create transfers table: {e}")))?;
         Ok(())
     }
 
@@ -77,7 +77,7 @@ impl Handler<PgStore> for TransfersHandler {
             .bind(amount.map(|v| v.to_string()))
             .execute(&mut **tx)
             .await
-            .map_err(|e| SubdexError::Handler(format!("insert transfer: {e}")))?;
+            .map_err(|e| PalletideError::Handler(format!("insert transfer: {e}")))?;
         }
         Ok(())
     }

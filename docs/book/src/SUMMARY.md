@@ -5,6 +5,7 @@
 # Getting started
 
 - [Quickstart](./quickstart.md)
+- [Moving to Palletide](./renaming.md)
 - [Run it in Docker](./docker.md)
 
 # Build an indexer
@@ -23,7 +24,7 @@
 - [Crates](./reference/crates.md)
 - [Configuration & operations](./reference/config.md)
 - [The `@entity` schema dialect](./reference/schema-dialect.md)
-- [`subdex-codegen` CLI](./reference/codegen-cli.md)
+- [`palletide-codegen` CLI](./reference/codegen-cli.md)
 
 # Design & history
 

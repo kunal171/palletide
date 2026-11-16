@@ -137,7 +137,7 @@ store.commit(tx).await?;
   single-phase handlers keep working.
 
 ## Scope for the first PR
-- Add the `Prepared<S>` trait + `Handler::prepare` default to `subdex-core`.
+- Add the `Prepared<S>` trait + `Handler::prepare` default to `palletide-core`.
 - Switch `commit_batch` to prepare-concurrently / write-serially.
 - Convert **one** example handler (the `multi-pallet` `AssetsHandler`, which
   already accumulates rows) to the two-phase API as the dogfood + a test proving

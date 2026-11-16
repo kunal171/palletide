@@ -3,8 +3,8 @@
 //! indexer serves all its tables from the one Postgres pool the indexer writes to.
 
 use async_graphql::{Context, MergedObject, Object, SimpleObject};
+use palletide_graphql::StatusQuery;
 use sqlx::{PgPool, Row};
-use subdex_graphql::StatusQuery;
 
 /// A `Balances.Transfer` row.
 #[derive(SimpleObject, Debug, Clone)]

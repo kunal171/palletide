@@ -1,18 +1,34 @@
-# subdex starter
+# palletide starter
 
-A minimal, runnable [subdex](https://github.com/kunal171/subdex) indexer. Clone
+A minimal, runnable [palletide](https://github.com/kunal171/palletide) indexer. Clone
 it, point it at a chain, and it backfills + follows the tip into Postgres and
 serves a GraphQL API — then edit the schema + handler to index what you need.
 
-It's **schema-first**: `schema.graphql` is compiled by `subdex-codegen` into the
+It's **schema-first**: `schema.graphql` is compiled by `palletide-codegen` into the
 committed files under `src/generated/` (entity structs + typed upserts + a GraphQL
 API) and `migrations/`. You write only the event→entity mapping in
 `src/handler.rs`.
+
+## Install the CLI
+
+Requires Rust 1.96 or newer. Install from GitHub until the renamed crates are
+published on crates.io:
+
+```bash
+cargo install --git https://github.com/kunal171/palletide --locked palletide-codegen
+palletide-codegen --help
+```
+
+From a local checkout, use `cargo install --path crates/palletide-codegen --locked`.
+You can also run `cargo run -p palletide-codegen -- <command>` without installing.
+If the installed command is not found, add Cargo's binary directory (usually
+`~/.cargo/bin`) to your `PATH`.
 
 ## Run it
 
 ```bash
 # 1. Start Postgres
+cp .env.example .env
 docker compose up -d          # or: just up
 
 # 2. Run against a chain (backfill, then follow) + GraphQL on :4350
@@ -25,7 +41,7 @@ Open the API at <http://localhost:4350/graphql> and query `transfers`,
 ## Make it yours
 
 1. **Edit `schema.graphql`** — describe your entities (`@entity` types).
-2. **Regenerate** — `subdex-codegen generate schema.graphql --out src/generated`
+2. **Regenerate** — `palletide-codegen generate schema.graphql --out src/generated`
    (or `just codegen`). This rewrites `src/generated/` + the migration.
 3. **Edit `src/handler.rs`** — match your chain's events and build the generated
    entity structs; call their `.upsert(...)`.
@@ -40,7 +56,7 @@ Open the API at <http://localhost:4350/graphql> and query `transfers`,
 | `src/handler.rs` | Your event→entity mapping (the part you write). |
 | `src/main.rs` | Wiring: source → store → processor + GraphQL. |
 | `migrations/` | Generated SQL; applied on startup. |
-| `subdex.toml` | Config (source/store/processor); env vars override it. |
+| `palletide.toml` | Config (source/store/processor); env vars override it. |
 | `docker-compose.yml` | Postgres for local dev. |
 | `justfile` | `up` / `codegen` / `run` / `backfill` / `psql` shortcuts. |
 
@@ -48,4 +64,4 @@ Open the API at <http://localhost:4350/graphql> and query `transfers`,
 
 The full walkthrough — data sources (RPC / portal / hybrid), handler patterns,
 config knobs, GraphQL, observability, fast backfill, and operations — is in
-[`docs/GUIDE.md`](https://github.com/kunal171/subdex/blob/main/docs/GUIDE.md).
+[`docs/GUIDE.md`](https://github.com/kunal171/palletide/blob/main/docs/GUIDE.md).

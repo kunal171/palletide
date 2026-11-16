@@ -1,11 +1,11 @@
-# subdex
+# Palletide
 
 **A general-purpose, code-first blockchain indexer framework for
 [Substrate](https://substrate.io) chains — written in Rust.**
 
-subdex is to Substrate what [Subsquid/SQD](https://sqd.dev) is — but Rust-native
+palletide is to Substrate what [Subsquid/SQD](https://sqd.dev) is — but Rust-native
 end to end: you implement a `Handler` trait in plain Rust, define your own tables,
-and the framework drives a **resumable, reorg-safe** pipeline from the chain into
+and the framework drives a **resumable** pipeline from the chain into
 Postgres, with an optional GraphQL API.
 
 ```graphql
@@ -29,11 +29,11 @@ let row = Transfer {
 row.upsert(&mut **tx).await?;
 ```
 
-## Why subdex
+## Why palletide
 
 Indexers that decode against a **single pinned runtime metadata** silently break
 when a chain upgrades — storage layouts, event shapes, and call encodings drift,
-and the indexer keeps "working" while writing wrong data. subdex avoids this by:
+and the indexer keeps "working" while writing wrong data. palletide avoids this by:
 
 - **Decoding each block against the metadata for _its own_ spec version** — so it
   stays correct across runtime upgrades automatically, with no per-chain codegen.
@@ -43,10 +43,9 @@ and the indexer keeps "working" while writing wrong data. subdex avoids this by:
   tables. Optionally, a `schema.graphql` generates the structs, migrations, and a
   GraphQL API for you.
 
-It is **resumable** (a `(height, hash)` cursor survives restarts), **reorg-safe**
-(it validates parent hashes and rolls back to the true common ancestor on a fork),
-and **atomic** (your writes commit on the same transaction as the cursor advance —
-never half-applied).
+Progress survives restarts, and each batch's handler writes commit atomically
+with the cursor. Reorg detection rewinds framework progress; automatic handler
+entity rollback is not yet implemented. See [reorg limitations](./reorgs.md).
 
 ## Where to go from here
 

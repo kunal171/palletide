@@ -81,7 +81,7 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: subdex
+          POSTGRES_DB: palletide
         ports:
           - 5432:5432
         # Wait until Postgres is accepting connections before the job starts.
@@ -91,7 +91,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      SUBDEX_TEST_DB: postgres://postgres:postgres@localhost:5432/subdex
+      PALLETIDE_TEST_DB: postgres://postgres:postgres@localhost:5432/palletide
     steps:
       - uses: actions/checkout@v4
 
@@ -104,7 +104,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Store integration tests
-        run: cargo test -p subdex-store --test pg_store -- --ignored
+        run: cargo test -p palletide-store --test pg_store -- --ignored
 
       - name: GraphQL integration tests
-        run: cargo test -p subdex-graphql --test serve -- --ignored
+        run: cargo test -p palletide-graphql --test serve -- --ignored

@@ -1,17 +1,17 @@
-# subdex — Design Decisions & History
+# palletide — Design Decisions & History
 
-A running log of *why* subdex is built the way it is: the decisions we made, the
+A running log of *why* palletide is built the way it is: the decisions we made, the
 approaches we tried, where they failed, and what we switched to. New decisions go
 at the bottom of the relevant section. This is the "keep track of what we did
 first and why we changed" record — read it before reworking a subsystem so you
 don't re-walk a path we already ruled out.
 
 For *what* the system does, see [architecture.md](./architecture.md). For the
-forward roadmap, see the [v0.2 milestone](https://github.com/kunal171/subdex/milestone/1).
+forward roadmap, see the [v0.2 milestone](https://github.com/kunal171/palletide/milestone/1).
 
 ---
 
-## 0. What subdex is (and the north star)
+## 0. What palletide is (and the north star)
 
 A **general-purpose, code-first Substrate indexer framework in Rust** — a Subsquid
 (SQD) alternative where you write plain Rust handlers instead of a schema DSL. The
@@ -21,7 +21,7 @@ a repeated correction (see §11).
 Guiding principles, in priority order:
 1. **Correctness across runtime upgrades** — decode each block against *its own*
    spec-version metadata. This is the single failure mode that breaks pinned-
-   metadata indexers in production, and avoiding it is subdex's reason to exist.
+   metadata indexers in production, and avoiding it is palletide's reason to exist.
 2. **Atomicity & resumability** — a block's data and the cursor advance commit in
    one transaction; a crash never leaves half-indexed state.
 3. **Everything behind a trait** — `DataSource` / `Handler` / `Store` (+ the later
@@ -34,13 +34,13 @@ Guiding principles, in priority order:
 ## 1. Core architecture: three traits + an engine
 
 **Decision.** Split the pipeline into three traits in a dependency-free
-`subdex-core` crate — `DataSource` (produce decoded blocks), `Handler` (user code
+`palletide-core` crate — `DataSource` (produce decoded blocks), `Handler` (user code
 → rows), `Store` (cursor + reorg bookkeeping) — driven by a `Processor` engine.
 (PRs #1–#4.)
 
 **Why.** Each seam is a real substitution point we expected to exercise: multiple
 sources (RPC, later SQD portal), multiple stores, many handlers. Keeping
-`subdex-core` free of async-runtime/DB deps means anything can implement the
+`palletide-core` free of async-runtime/DB deps means anything can implement the
 contracts.
 
 **Validated later.** The SQD-portal source (#24) and the observer hook (#25)
@@ -148,7 +148,7 @@ constraints the issue hadn't anticipated:
    can implement `finalized_head` + `fetch_batch` but **not** `next_finalized`
    (it returns a clear "backfill-only" error). The production shape is therefore a
    *hybrid* — portal backfill → RPC tip — which we deferred to a follow-up.
-2. **Portal args are pre-decoded JSON, not SCALE.** subdex's model holds
+2. **Portal args are pre-decoded JSON, not SCALE.** palletide's model holds
    `scale_value::Value`. These are different decoders, so the issue's original
    "byte-identical handler output vs RPC" criterion is **impossible**. We
    *relaxed* it (with sign-off) to: structural fields match RPC exactly; a
@@ -237,16 +237,16 @@ we're supposed to prevent.
 
 **Decision.** A shared `on_decode_failure` helper for both decode sites:
 - **logs** a structured `warn!` (kind / pallet / item / height / error), and
-- **counts** `subdex_decode_failures_total` (labelled by kind/pallet) via the
+- **counts** `palletide_decode_failures_total` (labelled by kind/pallet) via the
   `metrics` facade.
 
 **Why the counter needs no feature gate.** The `metrics` facade is a **no-op
 unless a recorder is installed**, so the counter is free when the engine's
 `metrics` feature is off and shows up in Prometheus when it's on. Gating it
-behind a new `subdex-source` feature would have bought nothing — rejected.
+behind a new `palletide-source` feature would have bought nothing — rejected.
 
 **`strict` mode.** New `SourceConfig.strict` (default **off**) escalates a decode
-failure to a hard `SubdexError::Decode` that aborts the block (the engine's atomic
+failure to a hard `PalletideError::Decode` that aborts the block (the engine's atomic
 commit means nothing half-writes). Intended for CI / correctness testing.
 *Rejected alternative:* "strict = just log at `error!` but keep going" — the run
 would still 'succeed', so it wouldn't actually catch drift in CI.
@@ -260,13 +260,13 @@ a `strict` field there would have been a dead knob.
 
 ## 9. Store pruning: a bounded reorg window (#32, PR #43)
 
-**Problem.** `subdex_block` kept **one row per block, forever**, purely for reorg
+**Problem.** `palletide_block` kept **one row per block, forever**, purely for reorg
 detection. On a multi-million-block chain that's millions of rows that are never
-read again — reorg checks only look back a bounded window, and subdex indexes
+read again — reorg checks only look back a bounded window, and palletide indexes
 *finalized* blocks.
 
 **Decision.** `StoreConfig.reorg_retention` (default 5000; `0` = keep all), and
-`set_cursor` prunes `subdex_block WHERE height < committed - retention` **on the
+`set_cursor` prunes `palletide_block WHERE height < committed - retention` **on the
 same transaction** — atomic with the cursor advance, no extra round-trip, and the
 latest row is never touched so the cursor stays authoritative.
 
@@ -301,7 +301,7 @@ could be pruned out from under the walk.
     (RUSTSEC-2026-0204 in crossbeam-epoch) and bumped it — deny scanning the whole
     graph is why a dependency issue surfaced unrelated to the change.
 - **`cargo fmt`, not per-tool config.** (Note: the *unit-chain* repo uses prettier,
-  not rustfmt — that's a different repo; subdex is standard Rust tooling.)
+  not rustfmt — that's a different repo; palletide is standard Rust tooling.)
 - **CI infra flakiness.** Once, all three jobs "failed" at a uniform 15m — a
   runner **cancellation**, not a code failure. Diagnosed (the reorg loop provably
   terminates), re-ran, passed in <1m. Don't assume red = your code; check whether
@@ -340,7 +340,7 @@ These are course-corrections worth not repeating:
 
 ## 12. Status & open decisions
 
-**Shipped** (all on the [v0.2 milestone](https://github.com/kunal171/subdex/milestone/1)):
+**Shipped** (all on the [v0.2 milestone](https://github.com/kunal171/palletide/milestone/1)):
 RPC retry (#23, §5) · SQD-portal source, first PR (#24, §5) · observability (#25,
 §6) · deep-reorg walk (#26, §3) · SS58 signer (#28, §7) · decode-failure
 visibility (#29, §8) · store pruning (#32, §9) · CI feature coverage (§10).

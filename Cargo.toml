@@ -1,15 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/subdex-core",
-    "crates/subdex-source",
-    "crates/subdex-store",
-    "crates/subdex",
+    "crates/palletide-core",
+    "crates/palletide-source",
+    "crates/palletide-store",
+    "crates/palletide",
     "examples/*",
     # Added in subsequent feature branches as each is implemented:
-    "crates/subdex-graphql",
-    "crates/subdex-config",
-    "crates/subdex-codegen",
+    "crates/palletide-graphql",
+    "crates/palletide-config",
+    "crates/palletide-codegen",
 ]
 # The starter template is a standalone project (git-deps on the published crates),
 # not a workspace member — exclude it so `cargo build` never tries to compile it
@@ -19,10 +19,9 @@ exclude = ["templates/starter"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.94"
+rust-version = "1.96"
 license = "Apache-2.0"
-repository = "https://github.com/kunal171/subdex"
-description = "A general-purpose, code-first indexer framework for Substrate chains, written in Rust."
+repository = "https://github.com/kunal171/palletide"
 
 [workspace.dependencies]
 # async runtime
@@ -31,22 +30,21 @@ futures = "0.3"
 async-trait = "0.1"
 
 # substrate client + scale
-subxt = "0.50"
+subxt = "0.51.1"
 parity-scale-codec = { version = "3", features = ["derive"] }
 scale-value = "0.18"
-scale-decode = "0.16"
 
 # storage
 sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "macros", "migrate", "chrono", "json", "bigdecimal"] }
 
 # graphql / http
 async-graphql = "7"
-# Schema parsing for subdex-codegen (same major as async-graphql, already in tree)
+# Schema parsing for palletide-codegen (same major as async-graphql, already in tree)
 async-graphql-parser = "7"
 async-graphql-axum = "7"
 axum = "0.8"
 
-# observability (optional — behind the `metrics` feature of the `subdex` crate)
+# observability (optional — behind the `metrics` feature of the `palletide` crate)
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false, features = ["http-listener"] }
 
@@ -54,7 +52,7 @@ metrics-exporter-prometheus = { version = "0.18", default-features = false, feat
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 
 # errors / logging
 thiserror = "2"
@@ -65,19 +63,17 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # misc
 hex = "0.4"
-chrono = { version = "0.4", features = ["serde"] }
 # SS58 address encoding (base58 + blake2 checksum), for configurable-prefix signer addresses
 base58 = "0.2"
-blake2 = "0.10"
+blake2 = "0.11"
 
 # internal
-subdex = { path = "crates/subdex", version = "0.1.0" }
-subdex-core = { path = "crates/subdex-core", version = "0.1.0" }
-subdex-source = { path = "crates/subdex-source", version = "0.1.0" }
-subdex-store = { path = "crates/subdex-store", version = "0.1.0" }
-subdex-graphql = { path = "crates/subdex-graphql", version = "0.1.0" }
-subdex-config = { path = "crates/subdex-config", version = "0.1.0" }
-subdex-codegen = { path = "crates/subdex-codegen", version = "0.1.0" }
+palletide = { path = "crates/palletide", version = "0.1.0" }
+palletide-core = { path = "crates/palletide-core", version = "0.1.0" }
+palletide-source = { path = "crates/palletide-source", version = "0.1.0" }
+palletide-store = { path = "crates/palletide-store", version = "0.1.0" }
+palletide-graphql = { path = "crates/palletide-graphql", version = "0.1.0" }
+palletide-config = { path = "crates/palletide-config", version = "0.1.0" }
 
 [profile.release]
 opt-level = 3

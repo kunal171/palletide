@@ -1,0 +1,24 @@
+[package]
+name = "palletide-graphql"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GraphQL serving toolkit (async-graphql + axum) for palletide indexers."
+
+[dependencies]
+# Used by the public API documentation links.
+palletide-store.workspace = true
+async-graphql.workspace = true
+async-graphql-axum.workspace = true
+axum.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+reqwest.workspace = true

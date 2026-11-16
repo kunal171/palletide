@@ -8,13 +8,13 @@ name = "my-indexer"
 path = "src/main.rs"
 
 [dependencies]
-# The subdex framework crates. Pinned to the repo; swap for a crates.io version
+# The palletide framework crates. Pinned to the repo; swap for a crates.io version
 # once published.
-subdex = { git = "https://github.com/kunal171/subdex" }
-subdex-source = { git = "https://github.com/kunal171/subdex" }
-subdex-store = { git = "https://github.com/kunal171/subdex" }
-subdex-graphql = { git = "https://github.com/kunal171/subdex" }
-subdex-config = { git = "https://github.com/kunal171/subdex" }
+palletide = { git = "https://github.com/kunal171/palletide" }
+palletide-source = { git = "https://github.com/kunal171/palletide" }
+palletide-store = { git = "https://github.com/kunal171/palletide" }
+palletide-graphql = { git = "https://github.com/kunal171/palletide" }
+palletide-config = { git = "https://github.com/kunal171/palletide" }
 
 async-graphql = "7"
 async-trait = "0.1"

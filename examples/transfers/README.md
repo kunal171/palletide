@@ -1,10 +1,10 @@
-# subdex example: `transfers`
+# palletide example: `transfers`
 
-A minimal, runnable [`subdex`](../../) indexer. It records every
+A minimal, runnable [`palletide`](../../) indexer. It records every
 `Assets.Deposited` and `Assets.Withdrawn` event (common token-movement events on
 Substrate chains) into a Postgres `transfers` table.
 
-This is the canonical "how do I use subdex" starting point: it shows the whole
+This is the canonical "how do I use palletide" starting point: it shows the whole
 shape of a real indexer in ~120 lines — a `Handler`, wiring a `SubxtSource` +
 `PgStore` + `Processor`, and a `main`.
 
@@ -19,7 +19,7 @@ shape of a real indexer in ~120 lines — a `Handler`, wiring a `SubxtSource` +
 
 ```bash
 # 1. A Postgres to index into
-docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=subdex \
+docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=palletide \
     -p 55432:5432 postgres:16-alpine
 
 # 2. Configure (WS_URL + DATABASE_URL are required). The .env is auto-loaded
@@ -28,11 +28,11 @@ cp examples/transfers/.env.example .env
 #   edit the .env if your endpoints differ
 
 # 3. Run the indexer (backfills ~20 recent blocks, then follows the tip)
-cargo run -p subdex-example-transfers
+cargo run -p palletide-example-transfers
 
 # backfill only (don't follow the tip), from a specific height — env vars
 # always override the .env file:
-FOLLOW=0 START_HEIGHT=8660000 cargo run -p subdex-example-transfers
+FOLLOW=0 START_HEIGHT=8660000 cargo run -p palletide-example-transfers
 ```
 
 > Config is read from the environment; a local `.env` (in the working directory)
@@ -82,7 +82,7 @@ SELECT block_height, direction, asset_id, account, amount
 | Var            | Default                                               | Meaning                                    |
 |----------------|-------------------------------------------------------|--------------------------------------------|
 | `WS_URL`       | **required** (e.g. `wss://your-substrate-node:9944`)  | Chain RPC endpoint                         |
-| `DATABASE_URL` | **required** (e.g. `postgres://postgres:postgres@localhost:55432/subdex`) | Postgres connection     |
+| `DATABASE_URL` | **required** (e.g. `postgres://postgres:postgres@localhost:55432/palletide`) | Postgres connection     |
 | `START_HEIGHT` | `finalized_head − 20`                                 | Backfill start (only used on a fresh DB)   |
 | `FOLLOW`       | `1`                                                   | Follow the tip after backfill (`0` exits)  |
 | `SERVE`        | `1`                                                   | Serve the GraphQL API (`0` to disable)     |

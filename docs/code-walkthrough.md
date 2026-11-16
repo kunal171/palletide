@@ -5,22 +5,22 @@ first for the high-level model; this document explains the actual implementation
 
 Crates, in dependency order:
 
-- [`subdex-core`](#subdex-core) — traits + types (no deps)
-- [`subdex-source`](#subdex-source) — subxt RPC `DataSource` (+ the SQD-portal / `HybridSource` sources under the `sqd` feature, and the `value` field-extraction helpers)
-- [`subdex-store`](#subdex-store) — Postgres `Store`
-- [`subdex`](#subdex) — the engine (`Processor`)
-- [`subdex-graphql`](#subdex-graphql) — GraphQL serving
+- [`palletide-core`](#palletide-core) — traits + types (no deps)
+- [`palletide-source`](#palletide-source) — subxt RPC `DataSource` (+ the SQD-portal / `HybridSource` sources under the `sqd` feature, and the `value` field-extraction helpers)
+- [`palletide-store`](#palletide-store) — Postgres `Store`
+- [`palletide`](#palletide) — the engine (`Processor`)
+- [`palletide-graphql`](#palletide-graphql) — GraphQL serving
 - [`examples/transfers`](#examplestransfers) — a complete example
 
 > Two later crates aren't walked through file-by-file here; they're documented in
-> depth elsewhere: [`subdex-config`](../crates/subdex-config) (typed TOML+env
+> depth elsewhere: [`palletide-config`](../crates/palletide-config) (typed TOML+env
 > config — see [Configuration](./CONFIGURATION.md)) and
-> [`subdex-codegen`](../crates/subdex-codegen) (the schema-first toolchain — see
+> [`palletide-codegen`](../crates/palletide-codegen) (the schema-first toolchain — see
 > the [GUIDE](./GUIDE.md) and [RFC 034](./rfcs/034-schema-first-codegen.md)).
 
 ---
 
-## `subdex-core`
+## `palletide-core`
 
 The foundation: contracts and types with **no async-runtime or database
 dependencies**. Everything else implements these.
@@ -56,7 +56,7 @@ Worth highlighting from the source:
 - **`Store::Tx<'a>`** is a GAT (generic associated type), letting each store
   define its own transaction type (`sqlx::Transaction` for Postgres).
 
-### `error.rs` — `SubdexError`
+### `error.rs` — `PalletideError`
 
 A single error enum. The notable variant is the structured
 `Reorg { height, expected, got }`, which carries the fork height so the rollback
@@ -64,7 +64,7 @@ knows how far to go.
 
 ---
 
-## `subdex-source`
+## `palletide-source`
 
 A `DataSource` backed by a direct WebSocket RPC connection via `subxt`. Concrete
 to subxt's `PolkadotConfig` (H256 hashes, `u32` block numbers, `MultiAddress`),
@@ -115,7 +115,7 @@ The header is always fetched — its `parent_hash` is required for reorg-safety.
 **Retry + reconnect.** Direct RPC fails transiently — timeouts, dropped sockets,
 node restarts, rate-limits. Each network op (`finalized_head`, per-block fetch,
 `next_finalized`) is wrapped in `retry_async`, which retries **transient** errors
-(`SubdexError::Source`) with exponential backoff + jitter per `SourceConfig.retry`
+(`PalletideError::Source`) with exponential backoff + jitter per `SourceConfig.retry`
 (`RetryConfig`, default 5 retries / 250ms→30s). Decode errors fail fast — retrying
 a genuine data bug won't help. When the finalized stream errors, the subscription
 is dropped so the retry **re-subscribes**, which is the reconnect path. So a single
@@ -125,23 +125,23 @@ blip no longer aborts the run; only an exhausted budget does.
 
 - Offline unit tests for the timestamp/value-walk helpers.
 - Two `#[ignore]`d live tests against a live Substrate chain
-  ([`tests/live_chain.rs`](../crates/subdex-source/tests/live_chain.rs)) that fetch
+  ([`tests/live_chain.rs`](../crates/palletide-source/tests/live_chain.rs)) that fetch
   real blocks and assert contiguity, parent-hash chaining, `Timestamp.set`
   presence, and non-empty decoded event names.
 
 ---
 
-## `subdex-store`
+## `palletide-store`
 
 The Postgres `Store`, via `sqlx`. Owns the framework's bookkeeping.
 
 ### `migrations/0001_bookkeeping.sql` — the schema
 
-One table, `subdex_block`, namespaced with the `subdex_` prefix so it never
+One table, `palletide_block`, namespaced with the `palletide_` prefix so it never
 collides with your tables:
 
 ```sql
-subdex_block(height PK, hash, parent_hash, timestamp, spec_version, indexed_at)
+palletide_block(height PK, hash, parent_hash, timestamp, spec_version, indexed_at)
 ```
 
 It is **both** the cursor (the max-height row is "where we are") and the
@@ -164,7 +164,7 @@ Implements `Store`:
 - `set_cursor(tx, block)` → an **idempotent upsert** (`INSERT … ON CONFLICT
   (height) DO UPDATE`) recording hash/parent_hash/timestamp/spec_version. Idempotent
   so re-indexing a height after a rollback just overwrites the row.
-- `rollback_to(height)` → `DELETE FROM subdex_block WHERE height > $1`, in its own
+- `rollback_to(height)` → `DELETE FROM palletide_block WHERE height > $1`, in its own
   transaction.
 
 `pool()` exposes the underlying `PgPool` so a handler's `init` can create its own
@@ -172,16 +172,16 @@ tables (and the GraphQL layer can query) against the same database.
 
 ### Tests
 
-[`tests/pg_store.rs`](../crates/subdex-store/tests/pg_store.rs) — `#[ignore]`d
+[`tests/pg_store.rs`](../crates/palletide-store/tests/pg_store.rs) — `#[ignore]`d
 integration tests against a real Postgres (each in an isolated throwaway DB)
 covering: idempotent init, cursor + metadata recording, upsert-after-rollback, and
 reorg rollback removing exactly the rows above the fork.
 
 ---
 
-## `subdex`
+## `palletide`
 
-The engine. [`processor.rs`](../crates/subdex/src/processor.rs) is the heart of
+The engine. [`processor.rs`](../crates/palletide/src/processor.rs) is the heart of
 the framework.
 
 ### `Processor`
@@ -259,16 +259,16 @@ asserting the cursor advanced and events were written on the same transaction.
 
 ---
 
-## `subdex-graphql`
+## `palletide-graphql`
 
-A GraphQL serving toolkit (`async-graphql` + `axum`). Because subdex is
+A GraphQL serving toolkit (`async-graphql` + `axum`). Because palletide is
 code-first, this is a *toolkit*, not an auto-generated API.
 
 ### `status.rs` — the built-in status query
 
 `StatusQuery` exposes an `indexerStatus` field returning `IndexerStatus`
 (`height`, `hash`, `specVersion`, `blockTimestamp`, `indexedBlocks`), read from
-`subdex_block` in one round-trip. Every indexer gets this for free; the `PgPool`
+`palletide_block` in one round-trip. Every indexer gets this for free; the `PgPool`
 is pulled from the schema's context data.
 
 ### `server.rs` — the HTTP harness

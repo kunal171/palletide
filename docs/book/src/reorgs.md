@@ -1,5 +1,14 @@
 # Reorgs & finality
 
+## Current limitation
+
+Reorg detection rewinds the framework's block records and progress cursor.
+`PgStore::rollback_to` currently deletes only rows from `palletide_block`;
+handler entity rows are not removed or restored. Do not rely on automatic
+entity rollback. The built-in sources index finalized blocks, where forks are
+not expected during normal operation.
+
+
 The processor anchors on the chain's **finalized** head. Before committing a block
 it validates that the block's `parent_hash` matches the hash stored for the
 previous height:
@@ -11,7 +20,7 @@ previous height:
   re-fetches from the fork point. The rewind is bounded by `MAX_REORG_DEPTH`
   (default 64; a deeper fork errors rather than rewinding unboundedly).
 
-Because subdex indexes finalized blocks, deep reorgs are not expected; the
+Because palletide indexes finalized blocks, deep reorgs are not expected; the
 parent-hash check protects against any divergence within the retained window
 (`REORG_RETENTION`). On GRANDPA chains the finalized cursor is clean and
 unambiguous.

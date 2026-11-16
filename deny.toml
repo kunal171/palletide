@@ -1,4 +1,4 @@
-# cargo-deny configuration — dependency auditing for the subdex workspace.
+# cargo-deny configuration — dependency auditing for the palletide workspace.
 # Run locally with:  cargo deny check
 # See https://embarkstudios.github.io/cargo-deny/
 

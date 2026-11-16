@@ -3,25 +3,25 @@
 //! Wires **two** handlers ([`BalancesHandler`] + [`AssetsHandler`]) onto one
 //! `Processor`, backfills then follows the tip, and (by default) serves a GraphQL
 //! API exposing both handlers' tables. All framework config is loaded via
-//! [`subdex_config`] (`.env` / `subdex.toml` / env vars — see that crate).
+//! [`palletide_config`] (`.env` / `palletide.toml` / env vars — see that crate).
 //!
 //! Example-app knobs (not framework config): `FOLLOW` (default `1`), `SERVE`
 //! (default `1`), `GRAPHQL_PORT` (default `4350`). `START_HEIGHT` defaults to
 //! `head - 20` when unset so a fresh run does something immediately.
 //!
 //! ```bash
-//! WS_URL=wss://your-node:9944 DATABASE_URL=postgres://…/subdex \
-//!     cargo run -p subdex-example-multi-pallet
+//! WS_URL=wss://your-node:9944 DATABASE_URL=postgres://…/palletide \
+//!     cargo run -p palletide-example-multi-pallet
 //! ```
 
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
+use palletide::{DataSource, Processor};
+use palletide_config::IndexerConfig;
+use palletide_example_multi_pallet::{AssetsHandler, BalancesHandler, QueryRoot};
+use palletide_graphql::{serve as serve_graphql, GraphqlConfig};
+use palletide_source::SubxtSource;
+use palletide_store::PgStore;
 use std::sync::Arc;
-use subdex::{DataSource, Processor};
-use subdex_config::IndexerConfig;
-use subdex_example_multi_pallet::{AssetsHandler, BalancesHandler, QueryRoot};
-use subdex_graphql::{serve as serve_graphql, GraphqlConfig};
-use subdex_source::SubxtSource;
-use subdex_store::PgStore;
 
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())

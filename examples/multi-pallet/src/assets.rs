@@ -12,9 +12,9 @@
 //! one transaction), and avoids the per-row-upsert-per-block anti-pattern.
 
 use async_trait::async_trait;
-use subdex::{Block, Handler, Prepared, Result, Store, SubdexError};
-use subdex_source::value::{field_account_ss58, field_u128};
-use subdex_store::PgStore;
+use palletide::{Block, Handler, PalletideError, Prepared, Result, Store};
+use palletide_source::value::{field_account_ss58, field_u128};
+use palletide_store::PgStore;
 
 /// One accumulated row, ready to bulk-insert.
 struct Row {
@@ -72,7 +72,7 @@ impl Prepared<PgStore> for PreparedAssets {
         }
         q.execute(&mut **tx)
             .await
-            .map_err(|e| SubdexError::Handler(format!("bulk insert asset_lifecycle: {e}")))?;
+            .map_err(|e| PalletideError::Handler(format!("bulk insert asset_lifecycle: {e}")))?;
         Ok(())
     }
 }
@@ -112,8 +112,8 @@ impl AssetsHandler {
 /// `migrations/assets/`. Unlike an ad-hoc `CREATE TABLE IF NOT EXISTS` in `init`,
 /// these apply once, in order, and are recorded — so a schema evolution (v2 adds
 /// an index) reaches an existing deployment exactly once, and a fresh DB gets the
-/// whole set. The framework owns `subdex_block`; the handler owns this.
-static MIGRATOR: subdex_store::Migrator = sqlx::migrate!("./migrations/assets");
+/// whole set. The framework owns `palletide_block`; the handler owns this.
+static MIGRATOR: palletide_store::Migrator = sqlx::migrate!("./migrations/assets");
 
 #[async_trait]
 impl Handler<PgStore> for AssetsHandler {

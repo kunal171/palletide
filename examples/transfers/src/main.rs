@@ -7,7 +7,7 @@
 //! data alongside indexing.
 //!
 //! Framework configuration (source / store / processor) is loaded by
-//! [`subdex_config`] — a local `.env` and an optional `subdex.toml` are picked up
+//! [`palletide_config`] — a local `.env` and an optional `palletide.toml` are picked up
 //! automatically, and env vars override the file. See that crate for the full
 //! variable list (`WS_URL`, `DATABASE_URL`, `BATCH_SIZE`, `CONCURRENCY`,
 //! `SS58_PREFIX`, `STRICT`, `REORG_RETENTION`, `MAX_REORG_DEPTH`, `START_HEIGHT`, …).
@@ -25,17 +25,17 @@
 //!
 //! ```bash
 //! cp .env.example .env   # then edit WS_URL / DATABASE_URL
-//! cargo run -p subdex-example-transfers
+//! cargo run -p palletide-example-transfers
 //! ```
 
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
+use palletide::{DataSource, Processor};
+use palletide_config::IndexerConfig;
+use palletide_example_transfers::{QueryRoot, TransfersHandler};
+use palletide_graphql::{serve as serve_graphql, GraphqlConfig};
+use palletide_source::SubxtSource;
+use palletide_store::PgStore;
 use std::sync::Arc;
-use subdex::{DataSource, Processor};
-use subdex_config::IndexerConfig;
-use subdex_example_transfers::{QueryRoot, TransfersHandler};
-use subdex_graphql::{serve as serve_graphql, GraphqlConfig};
-use subdex_source::SubxtSource;
-use subdex_store::PgStore;
 
 /// Read an optional example-app env var (not framework config) with a default.
 fn env_or(key: &str, default: &str) -> String {
@@ -53,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Framework config (source/store/processor) via the shared loader: an
     // optional TOML file, overlaid by env vars (WS_URL, DATABASE_URL, …). A local
-    // `.env` is auto-loaded. See `subdex-config` for the full var list.
+    // `.env` is auto-loaded. See `palletide-config` for the full var list.
     let cfg = IndexerConfig::load()?;
 
     // Example-app knobs (not framework config).
@@ -79,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
 
     let processor = Processor::new(source, store, vec![Arc::new(TransfersHandler)], proc_cfg);
 
-    // Ensure the schema (subdex_block + transfers) exists before serving queries.
+    // Ensure the schema (palletide_block + transfers) exists before serving queries.
     processor.init().await?;
 
     // Optionally serve the GraphQL API alongside indexing, on a background task.

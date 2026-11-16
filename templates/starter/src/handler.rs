@@ -6,22 +6,22 @@
 //!
 //! The shape is **load → extract → process → persist**:
 //! - the processor hands you each `Block` (load);
-//! - you read event fields with the `subdex_source::value` helpers (extract);
+//! - you read event fields with the `palletide_source::value` helpers (extract);
 //! - you build a generated entity struct (process);
 //! - you call its generated `.upsert(...)` on the transaction (persist), so the
 //!   write commits atomically with the indexer cursor.
 
 use async_trait::async_trait;
-use subdex::{Block, Handler, Result, Store, SubdexError};
-use subdex_source::value::{field_account_ss58, field_bigint};
-use subdex_store::PgStore;
+use palletide::{Block, Handler, Result, Store, PalletideError};
+use palletide_source::value::{field_account_ss58, field_bigint};
+use palletide_store::PgStore;
 
 // The generated entity struct + its typed `.upsert()`.
 use crate::generated::entities::Transfer;
 
 /// Embeds the generated migration (`migrations/0001_schema.sql`) so the table is
 /// created once, in order, tracked in `_sqlx_migrations_my_handler`.
-static MIGRATOR: subdex_store::Migrator = sqlx::migrate!("./migrations");
+static MIGRATOR: palletide_store::Migrator = sqlx::migrate!("./migrations");
 
 pub struct MyHandler;
 
@@ -64,7 +64,7 @@ impl Handler<PgStore> for MyHandler {
             };
             row.upsert(&mut **tx)
                 .await
-                .map_err(|e| SubdexError::Handler(format!("upsert transfer: {e}")))?;
+                .map_err(|e| PalletideError::Handler(format!("upsert transfer: {e}")))?;
         }
         Ok(())
     }

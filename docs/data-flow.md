@@ -3,7 +3,7 @@
 This document follows a single block through the entire pipeline, from a node's
 RPC to a row in Postgres and out via GraphQL. It ties together the abstractions in
 [Architecture](./architecture.md) and the implementation in the
-[Code Walkthrough](./code-walkthrough.md).
+[Code Walkthrough](https://github.com/kunal171/palletide/blob/main/docs/code-walkthrough.md).
 
 We'll use the bundled `transfers` example (indexing `Assets.Deposited` /
 `Assets.Withdrawn`) as the concrete case.
@@ -21,12 +21,12 @@ We'll use the bundled `transfers` example (indexing `Assets.Deposited` /
 
 ```
 processor.init()
-   ├─ store.init()        → runs MIGRATOR → CREATE TABLE subdex_block (if absent)
+   ├─ store.init()        → runs MIGRATOR → CREATE TABLE palletide_block (if absent)
    └─ for each handler: handler.init(store)
                           → TransfersHandler creates its `transfers` table
 ```
 
-After `init`, the framework's `subdex_block` table and the user's `transfers`
+After `init`, the framework's `palletide_block` table and the user's `transfers`
 table both exist. Nothing has been indexed yet, so `store.cursor()` is `None`.
 
 ---
@@ -89,12 +89,12 @@ commit_block(Block N):
    │           INSERT INTO transfers (…) VALUES (…)        ← on tx
    │
    ├─ store.set_cursor(tx, Block N):
-   │     INSERT INTO subdex_block (N, hash, parent_hash, …) ← on tx
+   │     INSERT INTO palletide_block (N, hash, parent_hash, …) ← on tx
    │
    └─ store.commit(tx)                              ── COMMIT
 ```
 
-Everything — the `transfers` rows **and** the `subdex_block` cursor row — commits
+Everything — the `transfers` rows **and** the `palletide_block` cursor row — commits
 in **one** transaction. Either both land or neither does.
 
 ### 4. Advance
@@ -129,7 +129,7 @@ process_block(Block N):
    Block N.parent_hash = 0x...BBB   (the new chain's parent)   → mismatch!
 
    → store.rollback_to(N - 2)
-        DELETE FROM subdex_block WHERE height > N-2
+        DELETE FROM palletide_block WHERE height > N-2
         (the diverged parent at N-1 and everything above is removed)
 
    → return Some(N - 1)             (tell backfill to re-fetch from N-1)
@@ -139,10 +139,10 @@ process_block(Block N):
 re-indexing N-1, N, … on the new fork. The database converges to the canonical
 chain.
 
-> Note: `rollback_to` only deletes the framework's `subdex_block` rows here. A
+> Note: `rollback_to` only deletes the framework's `palletide_block` rows here. A
 > production deployment that needs user entity rows rolled back too would extend
 > the store / handlers to tag their rows with the block height so they can be
-> removed in the same rollback — a documented extension point. Because subdex
+> removed in the same rollback — a documented extension point. Because palletide
 > indexes *finalized* blocks, reorgs are rare in practice.
 
 ---
@@ -180,7 +180,7 @@ A client asks for the indexer's progress:
 ```
 
 which resolves via `StatusQuery` → `load_status(pool)` →
-`SELECT … FROM subdex_block …` → e.g.:
+`SELECT … FROM palletide_block …` → e.g.:
 
 ```json
 { "data": { "indexerStatus": {
@@ -203,7 +203,7 @@ node RPC ──▶ SubxtSource ──▶ Block (decoded, per-spec) ──▶ Pro
                                                               │
                               ┌── BEGIN ──────────────────────┤
                               │   Handler INSERTs (your rows) │
-                              │   set_cursor (subdex_block)   │  ← one transaction
+                              │   set_cursor (palletide_block)   │  ← one transaction
                               └── COMMIT ─────────────────────┘
                                                               │
                                                           Postgres

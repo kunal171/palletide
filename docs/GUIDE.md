@@ -1,18 +1,34 @@
 # Build an indexer on your chain
 
-A top-to-bottom guide to building a [subdex](https://github.com/kunal171/subdex/blob/main/README.md) indexer for any
+A top-to-bottom guide to building a [palletide](https://github.com/kunal171/palletide/blob/main/README.md) indexer for any
 Substrate chain — then a reference to return to. It covers the choices at each
 step, so you can start minimal and grow.
 
-**The shortest path:** clone the [starter template](https://github.com/kunal171/subdex/tree/main/templates/starter), point
+**The shortest path:** clone the [starter template](https://github.com/kunal171/palletide/tree/main/templates/starter), point
 `WS_URL` at your chain, `cargo run`. Everything below explains what that template
 does and how to take it further.
 
 ```bash
 # from templates/starter/
+cp .env.example .env
 docker compose up -d
 WS_URL=wss://rpc.polkadot.io cargo run     # backfill + follow + GraphQL on :4350
 ```
+
+## Install the CLI
+
+Requires Rust 1.96 or newer. Install from GitHub until the renamed crates are
+published on crates.io:
+
+```bash
+cargo install --git https://github.com/kunal171/palletide --locked palletide-codegen
+palletide-codegen --help
+```
+
+From a local checkout, use `cargo install --path crates/palletide-codegen --locked`.
+You can also run `cargo run -p palletide-codegen -- <command>` without installing.
+If the installed command is not found, add Cargo's binary directory (usually
+`~/.cargo/bin`) to your `PATH`.
 
 ## The mental model
 
@@ -27,14 +43,14 @@ An indexer is one `Handler` you write, plus wiring the framework provides:
 - **You write:** a `schema.graphql` (your tables) and a `Handler` (event → rows).
 - **The framework does:** fetch + decode blocks, drive backfill/follow, detect
   reorgs, commit each block **atomically** with the cursor, and serve GraphQL.
-- **`subdex-codegen`** turns your schema into the entity structs, migration, and
+- **`palletide-codegen`** turns your schema into the entity structs, migration, and
   GraphQL API, so you only write the event→entity mapping.
 
 ---
 
 ## 1. Choose a data source
 
-A `DataSource` produces decoded blocks. Three ship with subdex — pick by whether
+A `DataSource` produces decoded blocks. Three ship with palletide — pick by whether
 you need speed, live-follow, or both.
 
 | Source | Backfill | Live tip | Works on | Use when |
@@ -65,7 +81,7 @@ let source = SubxtSource::connect(cfg.source_config()).await?;
 // );
 ```
 
-See [Configuration & operations § Data sources](https://github.com/kunal171/subdex/blob/main/docs/CONFIGURATION.md#data-sources) for the full trade-offs.
+See [Configuration & operations § Data sources](https://github.com/kunal171/palletide/blob/main/docs/CONFIGURATION.md#data-sources) for the full trade-offs.
 
 ---
 
@@ -94,7 +110,7 @@ Supported: `@entity` types (a required `id: ID!`), scalars (`ID`, `String`, `Int
 Generate:
 
 ```bash
-subdex-codegen generate schema.graphql --out src/generated   # or: just codegen
+palletide-codegen generate schema.graphql --out src/generated   # or: just codegen
 ```
 
 This writes, all carrying a DO-NOT-EDIT header:
@@ -107,7 +123,7 @@ For a big schema, split it across `schema/*.graphql` and pass the directory.
 
 > **Prefer hand-written tables?** You don't have to use codegen. Create tables in
 > your handler's `init` and write rows with plain `sqlx`. The
-> [`transfers`](https://github.com/kunal171/subdex/tree/main/examples/transfers) example does exactly that. Codegen just
+> [`transfers`](https://github.com/kunal171/palletide/tree/main/examples/transfers) example does exactly that. Codegen just
 > removes the boilerplate.
 
 ---
@@ -138,7 +154,7 @@ async fn process_block<'a>(&self, block: &Block, tx: &mut <PgStore as Store>::Tx
 
 ### Reading event fields (the value helpers)
 
-A decoded event's `fields` is a dynamic `scale_value::Value`. `subdex_source::value`
+A decoded event's `fields` is a dynamic `scale_value::Value`. `palletide_source::value`
 gives you total (never-panic) readers:
 
 | Helper | Reads |
@@ -165,7 +181,7 @@ The `Handler` trait has three methods; implement the one that fits.
   `INSERT` (fewer round-trips on a heavy backfill).
 - Use the **two-phase `prepare`/`write`** when per-block work is CPU-heavy: the
   engine runs every handler's `prepare` concurrently, then writes serially on the
-  shared transaction. See the [`multi-pallet`](https://github.com/kunal171/subdex/tree/main/examples/multi-pallet) example,
+  shared transaction. See the [`multi-pallet`](https://github.com/kunal171/palletide/tree/main/examples/multi-pallet) example,
   which shows a simple handler and a two-phase handler committing **together**.
 
 Whichever you pick, all writes ride the transaction the store hands you, so a
@@ -179,7 +195,7 @@ Codegen writes `migrations/0001_schema.sql`. Apply it once at startup from your
 handler's `init`:
 
 ```rust
-static MIGRATOR: subdex_store::Migrator = sqlx::migrate!("./migrations");
+static MIGRATOR: palletide_store::Migrator = sqlx::migrate!("./migrations");
 
 async fn init(&self, store: &PgStore) -> Result<()> {
     store.run_handler_migrations(&MIGRATOR, self.name()).await
@@ -199,7 +215,7 @@ than editing `0001`. New migrations reach existing deployments exactly once.
 
 ## 5. Configuration
 
-Config layers: an optional `subdex.toml` (`[source]/[store]/[processor]` tables),
+Config layers: an optional `palletide.toml` (`[source]/[store]/[processor]` tables),
 overlaid by environment variables, with a local `.env` auto-loaded. `WS_URL` and
 `DATABASE_URL` are the only required values.
 
@@ -255,7 +271,7 @@ Enable the `metrics` feature to get a Prometheus observer and a `/metrics`
 endpoint:
 
 ```toml
-subdex = { git = "…", features = ["metrics"] }
+palletide = { git = "…", features = ["metrics"] }
 ```
 
 ```rust
@@ -316,16 +332,16 @@ Public RPC is the usual bottleneck. In order of impact:
   CI / correctness runs).
 - **Docker.** The template's `docker-compose.yml` runs Postgres; the repo's
   top-level `Dockerfile` packages an indexer as a slim image (see
-  [README § Quickstart](https://github.com/kunal171/subdex/blob/main/README.md#quickstart)).
+  [README § Quickstart](https://github.com/kunal171/palletide/blob/main/README.md#quickstart)).
 
 ---
 
 ## Where to go next
 
-- The runnable [starter template](https://github.com/kunal171/subdex/tree/main/templates/starter) — clone and edit.
-- [`examples/transfers`](https://github.com/kunal171/subdex/tree/main/examples/transfers) — a single hand-written handler.
-- [`examples/multi-pallet`](https://github.com/kunal171/subdex/tree/main/examples/multi-pallet) — two handlers, two write
+- The runnable [starter template](https://github.com/kunal171/palletide/tree/main/templates/starter) — clone and edit.
+- [`examples/transfers`](https://github.com/kunal171/palletide/tree/main/examples/transfers) — a single hand-written handler.
+- [`examples/multi-pallet`](https://github.com/kunal171/palletide/tree/main/examples/multi-pallet) — two handlers, two write
   patterns, one atomic commit.
-- [README](https://github.com/kunal171/subdex/blob/main/README.md) — architecture, data-source trade-offs, reorg handling.
+- [README](https://github.com/kunal171/palletide/blob/main/README.md) — architecture, data-source trade-offs, reorg handling.
 - [RFC 034](rfcs/034-schema-first-codegen.md) — the design behind the codegen and
   builder DX.

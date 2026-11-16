@@ -1,6 +1,6 @@
-# subdex example: `multi-pallet`
+# palletide example: `multi-pallet`
 
-A runnable [`subdex`](../../) indexer that indexes **two pallets with two
+A runnable [`palletide`](../../) indexer that indexes **two pallets with two
 handlers** into two tables — the common real-world shape the single-handler
 [`transfers`](../transfers) example doesn't cover.
 
@@ -19,7 +19,7 @@ It shows:
   pattern).
 - **GraphQL over both tables** plus the framework's `indexerStatus`, from the one
   Postgres pool the indexer writes to.
-- **Config via [`subdex-config`](../../crates/subdex-config)** — no hand-rolled
+- **Config via [`palletide-config`](../../crates/palletide-config)** — no hand-rolled
   env parsing.
 - **Versioned handler migrations.** `AssetsHandler` owns its schema via
   [`migrations/assets/`](./migrations/assets) (embedded with `sqlx::migrate!`) and
@@ -32,13 +32,13 @@ It shows:
 
 ```bash
 # A Postgres to index into
-docker run -d --name subdex-db \
-    -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=subdex \
+docker run -d --name palletide-db \
+    -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=palletide \
     -p 55432:5432 postgres:16-alpine
 
 WS_URL=wss://your-substrate-node:9944 \
-DATABASE_URL=postgres://postgres:postgres@localhost:55432/subdex \
-    cargo run -p subdex-example-multi-pallet
+DATABASE_URL=postgres://postgres:postgres@localhost:55432/palletide \
+    cargo run -p palletide-example-multi-pallet
 ```
 
 Then open <http://localhost:4350/graphql> and try:
@@ -53,8 +53,8 @@ Then open <http://localhost:4350/graphql> and try:
 
 ## Configuration
 
-Framework config (source / store / processor) is loaded by `subdex-config` —
-env vars and an optional `subdex.toml` (see [`subdex.toml.example`](../../subdex.toml.example)).
+Framework config (source / store / processor) is loaded by `palletide-config` —
+env vars and an optional `palletide.toml` (see [`palletide.toml.example`](../../palletide.toml.example)).
 `WS_URL` and `DATABASE_URL` are required; everything else has defaults.
 
 This binary adds three example-app knobs: `FOLLOW` (default `1`), `SERVE`

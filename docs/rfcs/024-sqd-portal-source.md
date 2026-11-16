@@ -55,14 +55,14 @@ names/indices, counts) WILL match RPC byte-for-byte; the decoded arg *values*
 will be equivalent-but-not-identical**, and that's documented as a known,
 inherent property of using a different decoder.
 
-## Proposed shape (crate `subdex-source`, behind a `sqd` feature)
+## Proposed shape (crate `palletide-source`, behind a `sqd` feature)
 ```
-crates/subdex-source/
+crates/palletide-source/
   src/
     sqd/
       mod.rs        // SqdPortalSource + SqdConfig
       client.rs     // POST /stream, parse JSON-lines, read head headers, gzip
-      mapping.rs    // portal JSON block -> subdex Block (+ json_to_value bridge)
+      mapping.rs    // portal JSON block -> palletide Block (+ json_to_value bridge)
     hybrid.rs       // HybridSource<Portal, Rpc>
 ```
 - `SqdConfig { portal_url, dataset, selection }` (+ retry reuse from #23).
@@ -80,7 +80,7 @@ crates/subdex-source/
   `json_to_value`, not byte-identical — inherent to a different decoder).
 - [x] `HybridSource` (portal backfill → RPC tip). **Shipped** — a generic
   `HybridSource<B, T>` delegating `fetch_batch`→backfill, `next_finalized`→tip,
-  `finalized_head`→max(both). See `crates/subdex-source/src/hybrid.rs`.
+  `finalized_head`→max(both). See `crates/palletide-source/src/hybrid.rs`.
 - [x] Benchmark portal vs RPC — see below.
 
 ## What live testing corrected (docs vs reality)

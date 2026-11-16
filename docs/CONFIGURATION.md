@@ -1,18 +1,18 @@
 # Configuration & operations reference
 
-Every knob subdex exposes, in one place: the Rust config structs, the env/TOML
+Every knob palletide exposes, in one place: the Rust config structs, the env/TOML
 layer that fills them, the data-source trade-offs, and the metrics it exports.
 
 For the step-by-step build walkthrough, see the
-[**GUIDE**](./GUIDE.md). For the rendered docs site, see
-[kunal171.github.io/subdex](https://kunal171.github.io/subdex/).
+[**GUIDE**](https://github.com/kunal171/palletide/blob/main/docs/GUIDE.md). For the rendered docs site, see
+[kunal171.github.io/palletide](https://kunal171.github.io/palletide/).
 
 ---
 
 ## The config structs
 
 Each component takes a typed config. You can build these by hand, or let
-[`subdex-config`](../crates/subdex-config) fill them from TOML + env (below).
+[`palletide-config`](https://github.com/kunal171/palletide/blob/main/crates/palletide-config) fill them from TOML + env (below).
 
 | Component | Type | Key options |
 |---|---|---|
@@ -23,7 +23,7 @@ Each component takes a typed config. You can build these by hand, or let
 
 ## The env / TOML layer
 
-`IndexerConfig::load()` reads an optional `subdex.toml` (`[source]` / `[store]` /
+`IndexerConfig::load()` reads an optional `palletide.toml` (`[source]` / `[store]` /
 `[processor]` tables), overlays environment variables, and auto-loads a local
 `.env`. `WS_URL` and `DATABASE_URL` are the only required values.
 
@@ -47,7 +47,7 @@ The example binaries add three app-level knobs: `SERVE` (serve the GraphQL API),
 ## Data sources
 
 The engine talks to any `DataSource`. Three ship in
-[`subdex-source`](../crates/subdex-source):
+[`palletide-source`](https://github.com/kunal171/palletide/blob/main/crates/palletide-source):
 
 | Source | Backfill | Live tip | Use when |
 |---|---|---|---|
@@ -64,13 +64,13 @@ with no per-chain codegen. It is latency-bound — throughput is capped by the n
 [SQD portal](https://docs.sqd.dev), far faster than per-block RPC. Because it is
 columnar, **throughput is dominated by how much you fetch**: a narrow field
 selection with large batches is dramatically faster than pulling full block data
-(see [RFC 024](./rfcs/024-sqd-portal-source.md) for measured numbers). Two
+(see [RFC 024](https://github.com/kunal171/palletide/blob/main/docs/rfcs/024-sqd-portal-source.md) for measured numbers). Two
 caveats, both inherent to the portal:
 
 - **Backfill-only.** It has no live Substrate tip, so `next_finalized` errors on
   its own — pair it with an RPC source via `HybridSource`.
 - **Decoded values are equivalent, not identical, to RPC.** The portal pre-decodes
-  args to JSON; subdex bridges that to `scale_value::Value` so handlers keep the
+  args to JSON; palletide bridges that to `scale_value::Value` so handlers keep the
   same type. Structural fields (heights, hashes, event names/indices, timestamps)
   match RPC exactly; complex arg shapes (enums, byte arrays) may differ.
 
@@ -78,7 +78,7 @@ caveats, both inherent to the portal:
 tip over RPC:
 
 ```rust
-use subdex_source::{HybridSource, SqdConfig, SqdPortalSource, SourceConfig, SubxtSource};
+use palletide_source::{HybridSource, SqdConfig, SqdPortalSource, SourceConfig, SubxtSource};
 
 let portal = SqdPortalSource::connect(
     SqdConfig::new("https://portal.sqd.dev", "polkadot").with_batch_size(5000),
@@ -113,11 +113,11 @@ Use it for a progress/ETA reporter, a test spy, or your own dashboard feed.
 Enable the `metrics` feature for a ready-made observer and a `/metrics` endpoint:
 
 ```toml
-subdex = { version = "...", features = ["metrics"] }
+palletide = { version = "...", features = ["metrics"] }
 ```
 
 ```rust
-use subdex::{install_prometheus, PrometheusObserver};
+use palletide::{install_prometheus, PrometheusObserver};
 use std::sync::Arc;
 
 install_prometheus("0.0.0.0:9000".parse()?)?; // serves /metrics
@@ -129,14 +129,14 @@ Exported series:
 
 | Kind | Series |
 |---|---|
-| Gauges | `subdex_cursor_height`, `subdex_finalized_head`, `subdex_head_lag` |
-| Counters | `subdex_blocks_processed_total`, `subdex_events_decoded_total`, `subdex_reorgs_total`, `subdex_errors_total`, `subdex_decode_failures_total` |
-| Histograms | `subdex_reorg_depth`, `subdex_batch_commit_seconds`, `subdex_fetch_seconds` |
+| Gauges | `palletide_cursor_height`, `palletide_finalized_head`, `palletide_head_lag` |
+| Counters | `palletide_blocks_processed_total`, `palletide_events_decoded_total`, `palletide_reorgs_total`, `palletide_errors_total`, `palletide_decode_failures_total` |
+| Histograms | `palletide_reorg_depth`, `palletide_batch_commit_seconds`, `palletide_fetch_seconds` |
 
 The feature is off by default — no metrics dependencies are compiled unless you
 ask for them.
 
-> The source emits `subdex_decode_failures_total` (labelled by `kind` / `pallet`)
+> The source emits `palletide_decode_failures_total` (labelled by `kind` / `pallet`)
 > whenever an event's fields or an extrinsic's args fail to decode. By default the
 > item is recorded with an empty value and indexing continues; set
 > `SourceConfig.strict` to make such a failure a hard error instead (useful in CI
@@ -160,7 +160,7 @@ traffic-gating one at `/readyz`.
 `/readyz` needs the pool, so it comes from a separate constructor:
 
 ```rust
-use subdex_graphql::{build_status_schema, router_with_health, GraphqlConfig};
+use palletide_graphql::{build_status_schema, router_with_health, GraphqlConfig};
 
 // router(..)             → GraphQL + /healthz
 // router_with_health(..) → GraphQL + /healthz + /readyz
@@ -170,15 +170,15 @@ let app = router_with_health(schema, &config, pool);
 Probe them by hand with the bundled example:
 
 ```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:55432/subdex \
-  cargo run -p subdex-graphql --example healthprobe
+DATABASE_URL=postgres://postgres:postgres@localhost:55432/palletide \
+  cargo run -p palletide-graphql --example healthprobe
 curl -i localhost:4350/readyz
 ```
 
 > Container probes: the runtime image is `debian-slim` with **no `curl`**, and
 > `/bin/sh` is dash (no `/dev/tcp`). A compose/ECS shell probe must invoke `bash`
 > explicitly — see the healthcheck in
-> [`docker-compose.yml`](../docker-compose.yml). Prefer an ALB/target-group HTTP
+> [`docker-compose.yml`](https://github.com/kunal171/palletide/blob/main/docker-compose.yml). Prefer an ALB/target-group HTTP
 > check where you have one; it needs nothing inside the image.
 
 ---
@@ -196,7 +196,7 @@ previous height:
   point. The rewind is bounded by `max_reorg_depth` (default 64; `0` = unbounded) —
   a deeper fork errors rather than rewinding unboundedly.
 
-Because subdex indexes finalized blocks, deep reorgs are not expected; the
+Because palletide indexes finalized blocks, deep reorgs are not expected; the
 parent-hash check protects against any divergence within the retained window. On
 GRANDPA chains the finalized cursor is clean and unambiguous.
 
@@ -213,14 +213,14 @@ cargo clippy --workspace --all-targets
 
 # Network/DB integration tests are #[ignore]d so offline/CI runs stay green.
 # Run them explicitly with a chain + Postgres available:
-docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=subdex \
+docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=palletide \
     -p 55432:5432 postgres:16-alpine
 
-SUBDEX_TEST_WS=wss://your-substrate-node:9944 \
-SUBDEX_TEST_DB=postgres://postgres:postgres@localhost:55432/subdex \
+PALLETIDE_TEST_WS=wss://your-substrate-node:9944 \
+PALLETIDE_TEST_DB=postgres://postgres:postgres@localhost:55432/palletide \
     cargo test --workspace -- --ignored
 ```
 
-Integration tests cover: decoding real mainnet blocks (`subdex-source`), the full
-store lifecycle incl. reorg rollback (`subdex-store`), an end-to-end
-mainnet→Postgres run (`subdex`), and serving GraphQL over HTTP (`subdex-graphql`).
+Integration tests cover: decoding real mainnet blocks (`palletide-source`), the full
+store lifecycle incl. reorg rollback (`palletide-store`), an end-to-end
+mainnet→Postgres run (`palletide`), and serving GraphQL over HTTP (`palletide-graphql`).

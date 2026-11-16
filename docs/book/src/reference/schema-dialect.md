@@ -1,7 +1,7 @@
 # The `@entity` schema dialect
 
-`subdex-codegen` reads a Subsquid-compatible `schema.graphql`. Each `@entity` type
-becomes a table; `subdex-codegen generate` turns the schema into entity structs,
+`palletide-codegen` reads a Subsquid-compatible `schema.graphql`. Each `@entity` type
+becomes a table; `palletide-codegen generate` turns the schema into entity structs,
 a SQL migration, typed upserts, and a GraphQL API.
 
 ## Entities

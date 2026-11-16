@@ -1,17 +1,15 @@
 # syntax=docker/dockerfile:1
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-# Pinned to the same toolchain CI builds with (1.96.0). Note the workspace's
-# declared rust-version (1.85) is below what the dependency tree actually needs —
-# sqlx 0.9 requires rustc >= 1.94 — so we track CI, not the manifest floor.
-# The build needs no database: subdex uses sqlx in runtime-query mode (no
+# Pinned to the same toolchain CI builds with (1.96.0).
+# The build needs no database: palletide uses sqlx in runtime-query mode (no
 # `query!` compile-time macros, no .sqlx cache), so nothing here connects to PG.
 FROM rust:1.96.0-bookworm AS builder
 
 # Which workspace binary to ship. Defaults to the `transfers` example indexer;
 # override with `--build-arg BIN=multi-pallet` (and PACKAGE) to ship another.
 ARG BIN=transfers
-ARG PACKAGE=subdex-example-transfers
+ARG PACKAGE=palletide-example-transfers
 
 WORKDIR /build
 
@@ -40,12 +38,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Run as a non-root user.
-RUN useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin subdex
+RUN useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin palletide
 WORKDIR /app
 
 COPY --from=builder /build/indexer /usr/local/bin/indexer
 
-USER subdex
+USER palletide
 
 # GraphQL API (example default 4350). The indexer also needs WS_URL + DATABASE_URL
 # at runtime — see docker-compose.yml or pass them with `-e`.

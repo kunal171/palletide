@@ -1,21 +1,21 @@
 [package]
-name = "subdex-example-transfers"
+name = "palletide-example-transfers"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Example subdex indexer: records Assets.Deposited / Assets.Withdrawn events into Postgres."
+description = "Example palletide indexer: records Assets.Deposited / Assets.Withdrawn events into Postgres."
 
 [[bin]]
 name = "transfers"
 path = "src/main.rs"
 
 [dependencies]
-subdex.workspace = true
-subdex-source.workspace = true
-subdex-store.workspace = true
-subdex-graphql.workspace = true
-subdex-config.workspace = true
+palletide.workspace = true
+palletide-source.workspace = true
+palletide-store.workspace = true
+palletide-graphql.workspace = true
+palletide-config.workspace = true
 async-graphql.workspace = true
 subxt.workspace = true
 async-trait.workspace = true

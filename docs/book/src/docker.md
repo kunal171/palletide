@@ -1,8 +1,8 @@
 # Run it in Docker
 
 The repo ships a
-[`Dockerfile`](https://github.com/kunal171/subdex/blob/main/Dockerfile) and a
-[`docker-compose.yml`](https://github.com/kunal171/subdex/blob/main/docker-compose.yml)
+[`Dockerfile`](https://github.com/kunal171/palletide/blob/main/Dockerfile) and a
+[`docker-compose.yml`](https://github.com/kunal171/palletide/blob/main/docker-compose.yml)
 that bring up Postgres **and** the `transfers` indexer together — no local Rust
 toolchain needed. Just point it at a chain:
 
@@ -12,7 +12,7 @@ WS_URL=wss://rpc.polkadot.io docker compose up --build
 ```
 
 - GraphQL API: <http://localhost:4350/graphql>
-- Postgres: `postgres://postgres:postgres@localhost:55432/subdex`
+- Postgres: `postgres://postgres:postgres@localhost:55432/palletide`
 
 The image is multi-stage — a Rust build stage, then a slim Debian runtime with CA
 certificates (so `rustls` can verify the chain's WSS endpoint). It runs as a

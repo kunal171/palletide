@@ -2,16 +2,16 @@
 //! finalized head, then follows the tip — and serves the generated GraphQL API
 //! over the same database.
 //!
-//! Config comes from the environment / a local `.env` / `subdex.toml` via
-//! `subdex_config` (WS_URL and DATABASE_URL are required). See docs/GUIDE.md.
+//! Config comes from the environment / a local `.env` / `palletide.toml` via
+//! `palletide_config` (WS_URL and DATABASE_URL are required). See docs/GUIDE.md.
 
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use std::sync::Arc;
-use subdex::{DataSource, Processor};
-use subdex_config::IndexerConfig;
-use subdex_graphql::{serve as serve_graphql, GraphqlConfig};
-use subdex_source::SubxtSource;
-use subdex_store::PgStore;
+use palletide::{DataSource, Processor};
+use palletide_config::IndexerConfig;
+use palletide_graphql::{serve as serve_graphql, GraphqlConfig};
+use palletide_source::SubxtSource;
+use palletide_store::PgStore;
 
 // Your handler + the generated GraphQL query root.
 use my_indexer::generated::graphql::QueryRoot;

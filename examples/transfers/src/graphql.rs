@@ -6,8 +6,8 @@
 //! the read API.
 
 use async_graphql::{Context, MergedObject, Object, SimpleObject};
+use palletide_graphql::StatusQuery;
 use sqlx::{PgPool, Row};
-use subdex_graphql::StatusQuery;
 
 /// One indexed transfer (a row of the `transfers` table).
 #[derive(SimpleObject, Debug, Clone)]

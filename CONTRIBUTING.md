@@ -1,4 +1,4 @@
-# Contributing to subdex
+# Contributing to palletide
 
 Thanks for your interest in contributing! This document describes how the project
 is developed so your changes land smoothly.
@@ -58,22 +58,22 @@ The suite has two tiers:
 
 - **Offline tests** — fast, hermetic, no network or database. These run on every
   push/PR and **must stay green**. Use in-memory test doubles (see
-  [`crates/subdex/src/testkit.rs`](./crates/subdex/src/testkit.rs)) for engine
+  [`crates/palletide/src/testkit.rs`](https://github.com/kunal171/palletide/blob/main/crates/palletide/src/testkit.rs)) for engine
   logic.
 - **Integration tests** — marked `#[ignore]` so the offline run skips them. They
   need external resources and are run explicitly:
 
   ```bash
   # Postgres (store + graphql integration tests)
-  docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=subdex \
+  docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=palletide \
       -p 55432:5432 postgres:16-alpine
 
-  SUBDEX_TEST_DB=postgres://postgres:postgres@localhost:55432/subdex \
+  PALLETIDE_TEST_DB=postgres://postgres:postgres@localhost:55432/palletide \
       cargo test --workspace -- --ignored
 
   # Live-chain tests additionally need an RPC endpoint:
-  SUBDEX_TEST_WS=wss://your-substrate-node:9944 \
-      cargo test -p subdex-source --test live_chain -- --ignored
+  PALLETIDE_TEST_WS=wss://your-substrate-node:9944 \
+      cargo test -p palletide-source --test live_chain -- --ignored
   ```
 
 CI runs the **DB** integration tests (via a Postgres service) but **not** the
@@ -83,7 +83,7 @@ please run the live tests locally and mention the result in your PR.
 ### Testing conventions
 
 - Gate any test that needs the network or a database with `#[ignore = "reason"]`,
-  and read its config from an env var (`SUBDEX_TEST_DB`, `SUBDEX_TEST_WS`) with a
+  and read its config from an env var (`PALLETIDE_TEST_DB`, `PALLETIDE_TEST_WS`) with a
   sensible local default.
 - Integration tests that touch a database should use an **isolated, throwaway
   database** created and dropped around the test, so they can run concurrently.
@@ -92,14 +92,14 @@ please run the live tests locally and mention the result in your PR.
 
 | Crate | Purpose |
 |---|---|
-| `subdex-core` | Traits (`DataSource`/`Handler`/`Store`) + types. No runtime/db deps. |
-| `subdex-source` | `subxt` RPC `DataSource`. |
-| `subdex-store` | Postgres `Store` via `sqlx`. |
-| `subdex` | The engine (`Processor`): backfill, follow, reorg, `run_until`. |
-| `subdex-graphql` | GraphQL serving toolkit. |
+| `palletide-core` | Traits (`DataSource`/`Handler`/`Store`) + types. No runtime/db deps. |
+| `palletide-source` | `subxt` RPC `DataSource`. |
+| `palletide-store` | Postgres `Store` via `sqlx`. |
+| `palletide` | The engine (`Processor`): backfill, follow, reorg, `run_until`. |
+| `palletide-graphql` | GraphQL serving toolkit. |
 | `examples/transfers` | A complete runnable example. |
 
-See [`docs/`](./docs) for the architecture, a file-by-file code walkthrough, and a
+See [`docs/`](https://github.com/kunal171/palletide/blob/main/docs) for the architecture, a file-by-file code walkthrough, and a
 data-flow trace.
 
 ## Code style
@@ -114,7 +114,7 @@ data-flow trace.
 ## Releases
 
 Releases are cut by **pushing a version tag**; the
-[`release` workflow](./.github/workflows/release.yml) does the rest (re-runs the
+[`release` workflow](https://github.com/kunal171/palletide/blob/main/.github/workflows/release.yml) does the rest (re-runs the
 checks, builds the example binary, and creates the GitHub Release).
 
 We ship a **pre-release for every update**. Pre-releases use a semver pre-release
@@ -141,4 +141,4 @@ reproduction (chain endpoint / block range / query if relevant).
 ## License
 
 By contributing, you agree your contributions are licensed under the project's
-[Apache-2.0](./LICENSE) license.
+[Apache-2.0](https://github.com/kunal171/palletide/blob/main/LICENSE) license.

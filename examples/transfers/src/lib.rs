@@ -1,4 +1,4 @@
-//! Example subdex indexer — records `Assets.Deposited` / `Assets.Withdrawn`
+//! Example palletide indexer — records `Assets.Deposited` / `Assets.Withdrawn`
 //! events (common token-movement events on Substrate chains) into Postgres.
 //!
 //! This crate doubles as a library so its pure logic (decoding event fields)

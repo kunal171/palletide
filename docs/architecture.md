@@ -1,16 +1,16 @@
 # Architecture
 
-This document explains how subdex is put together end to end: the core
+This document explains how palletide is put together end to end: the core
 abstractions, how data flows through them, and the guarantees the design provides.
 
-For the *why*, see [Purpose & Motivation](./README.md#purpose--motivation). For a
-line-by-line code tour, see the [Code Walkthrough](./code-walkthrough.md).
+For the *why*, see [Purpose & Motivation](https://github.com/kunal171/palletide/blob/main/README.md). For a
+line-by-line code tour, see the [Code Walkthrough](https://github.com/kunal171/palletide/blob/main/docs/code-walkthrough.md).
 
 ---
 
 ## The big picture
 
-subdex is a **pipeline** built from three traits. You implement one of them
+palletide is a **pipeline** built from three traits. You implement one of them
 (`Handler`); the framework provides production implementations of the other two
 and the engine that drives them.
 
@@ -21,14 +21,14 @@ and the engine that drives them.
                                     │ raw blocks (SCALE-encoded)
                 ╔═══════════════════▼═══════════════════╗
                 ║              DataSource               ║   trait
-                ║   "give me decoded blocks N..M and    ║   impl: subdex-source
+                ║   "give me decoded blocks N..M and    ║   impl: palletide-source
                 ║    the live finalized tip"            ║   (subxt RPC)
                 ╚═══════════════════╤═══════════════════╝
                                     │ Block { id, parent_hash, spec_version,
                                     │         events[], extrinsics[], … }
                 ╔═══════════════════▼═══════════════════╗
                 ║              Processor                ║   the engine
-                ║   resume → backfill → follow tip      ║   crate: subdex
+                ║   resume → backfill → follow tip      ║   crate: palletide
                 ║   reorg detect → rollback             ║
                 ╚═══════════════════╤═══════════════════╝
                                     │ one Block, inside a store transaction
@@ -39,7 +39,7 @@ and the engine that drives them.
                                     │ writes share the transaction
                 ╔═══════════════════▼═══════════════════╗
                 ║                Store                  ║   trait
-                ║   cursor · stored hashes · reorg      ║   impl: subdex-store
+                ║   cursor · stored hashes · reorg      ║   impl: palletide-store
                 ║   rollback · atomic commit            ║   (Postgres / sqlx)
                 ╚═══════════════════╤═══════════════════╝
                                     │
@@ -48,7 +48,7 @@ and the engine that drives them.
                           └─────────┬─────────┘
                                     │ (optional) read API
                           ┌─────────▼─────────┐
-                          │   GraphQL server  │   crate: subdex-graphql
+                          │   GraphQL server  │   crate: palletide-graphql
                           │ async-graphql+axum│
                           └───────────────────┘
 ```
@@ -57,7 +57,7 @@ and the engine that drives them.
 
 ## The three core abstractions
 
-All three live in [`subdex-core`](../crates/subdex-core), which has **no async
+All three live in [`palletide-core`](https://github.com/kunal171/palletide/blob/main/crates/palletide-core), which has **no async
 runtime or database dependencies** — it is pure contracts and types, so anything
 can implement it.
 
@@ -78,7 +78,7 @@ pub trait DataSource: Send + Sync {
 - A `DataSource` is responsible for **decoding** — turning raw SCALE bytes into
   the framework's `Block` model, against the correct per-block metadata.
 
-The default implementation, [`SubxtSource`](../crates/subdex-source), talks to a
+The default implementation, [`SubxtSource`](https://github.com/kunal171/palletide/blob/main/crates/palletide-source), talks to a
 node over WebSocket RPC using [`subxt`](https://docs.rs/subxt). The trait exists
 so other sources (an SQD-portal stream, a columnar archive) can be added without
 changing anything downstream.
@@ -132,15 +132,15 @@ The store owns the framework's **own** bookkeeping — not your tables. It track
 - the **cursor** (`cursor()` → highest indexed block; the resume point), and
 - the **hash of each recent height** (`hash_at()` → used to detect reorgs).
 
-The default implementation, [`PgStore`](../crates/subdex-store), keeps this in a
-`subdex_block` table and exposes a `sqlx::Transaction` as `Tx`, so your handler
+The default implementation, [`PgStore`](https://github.com/kunal171/palletide/blob/main/crates/palletide-store), keeps this in a
+`palletide_block` table and exposes a `sqlx::Transaction` as `Tx`, so your handler
 writes and the cursor advance are one atomic unit.
 
 #### Schema ownership: who migrates what
 
 The boundary is explicit:
 
-- **The framework owns `subdex_block`**, migrated by its embedded `MIGRATOR` and
+- **The framework owns `palletide_block`**, migrated by its embedded `MIGRATOR` and
   tracked in `_sqlx_migrations`. You never touch it.
 - **A handler owns its entity tables** — *and their migrations*. Rather than an
   ad-hoc `CREATE TABLE IF NOT EXISTS` in `init` (which can't express an
@@ -149,7 +149,7 @@ The boundary is explicit:
   runs it from `init`:
 
   ```rust
-  static MIGRATOR: subdex_store::Migrator = sqlx::migrate!("./migrations/assets");
+  static MIGRATOR: palletide_store::Migrator = sqlx::migrate!("./migrations/assets");
 
   async fn init(&self, store: &PgStore) -> Result<()> {
       store.run_handler_migrations(&MIGRATOR, self.name()).await
@@ -160,13 +160,13 @@ The boundary is explicit:
   (`_sqlx_migrations_<name>`) — isolated from the framework's, so two handlers (or
   a handler and the framework) never collide on one tracking table. Re-running
   `init` is idempotent: a fresh database and an already-migrated one converge.
-  See the [`multi-pallet`](../examples/multi-pallet) example's `AssetsHandler`.
+  See the [`multi-pallet`](https://github.com/kunal171/palletide/blob/main/examples/multi-pallet) example's `AssetsHandler`.
 
 ---
 
 ## The engine: `Processor`
 
-The [`Processor`](../crates/subdex) ties the three together. It is generic over a
+The [`Processor`](https://github.com/kunal171/palletide/blob/main/crates/palletide) ties the three together. It is generic over a
 concrete `DataSource` and `Store` and holds a list of `Arc<dyn Handler>`. Its run
 loop has three phases.
 
@@ -270,14 +270,14 @@ real fork.
 
 **The retained window.** The store keeps only the last `StoreConfig::reorg_retention`
 block rows (default 5000; `0` = keep all): on each commit, `set_cursor` prunes
-`subdex_block` rows below `cursor - retention` **on the same transaction**. Those
+`palletide_block` rows below `cursor - retention` **on the same transaction**. Those
 rows are never read again — reorg checks only look back a bounded number of
 blocks — so pruning keeps the bookkeeping table bounded instead of growing one row
 per block forever. Keep `reorg_retention` **≥ `max_reorg_depth`** so a reorg's fork
 point is still in the table.
 
 This keeps the database consistent with the canonical chain even when the chain
-reorganizes under us. Because subdex indexes **finalized** blocks, deep reorgs
+reorganizes under us. Because palletide indexes **finalized** blocks, deep reorgs
 aren't expected — but the check is a correctness backstop, and on GRANDPA chains
 the finalized cursor is unambiguous.
 
@@ -287,7 +287,7 @@ Each `Block` carries the `spec_version` it was authored under, and the
 `DataSource` decodes each block against the metadata for *that* spec. A backfill
 that spans a runtime upgrade decodes the old blocks under the old metadata and the
 new blocks under the new metadata, transparently. This is the property that
-distinguishes subdex from pinned-metadata indexers — it's correct across upgrades
+distinguishes palletide from pinned-metadata indexers — it's correct across upgrades
 **by construction**, not by remembering to regenerate types.
 
 ---
@@ -295,7 +295,7 @@ distinguishes subdex from pinned-metadata indexers — it's correct across upgra
 ## The data model
 
 The chain-agnostic types that flow through the pipeline (in
-[`subdex-core/types.rs`](../crates/subdex-core/src/types.rs)):
+[`palletide-core/types.rs`](https://github.com/kunal171/palletide/blob/main/crates/palletide-core/src/types.rs)):
 
 - **`Block`** — `id: BlockId`, `parent_hash`, `timestamp`, `spec_version`,
   `finalized`, `extrinsics: Vec<Extrinsic>`, `events: Vec<Event>`.
@@ -310,7 +310,7 @@ The chain-agnostic types that flow through the pipeline (in
 Decoded values are dynamic `scale_value::Value`s, which is what lets the framework
 work for **any** chain without compile-time knowledge of its types. A handler
 reads the fields it cares about by name (see the example's
-[`value_ext`](../examples/transfers/src/value_ext.rs)).
+[`value_ext`](https://github.com/kunal171/palletide/blob/main/crates/palletide-source/src/value.rs)).
 
 ---
 
@@ -327,4 +327,4 @@ trait, so the framework grows without churn.
 
 ---
 
-Next: **[Code Walkthrough →](./code-walkthrough.md)** · **[Data Flow →](./data-flow.md)**
+Next: **[Code Walkthrough →](https://github.com/kunal171/palletide/blob/main/docs/code-walkthrough.md)** · **[Data Flow →](./data-flow.md)**

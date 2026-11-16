@@ -1,12 +1,24 @@
-# `subdex-codegen` CLI
+# `palletide-codegen` CLI
 
-Install it from the workspace (`cargo install --path crates/subdex-codegen`, or
-`cargo run -p subdex-codegen -- …` in-tree).
+## Install the CLI
+
+Requires Rust 1.96 or newer. Install from GitHub until the renamed crates are
+published on crates.io:
+
+```bash
+cargo install --git https://github.com/kunal171/palletide --locked palletide-codegen
+palletide-codegen --help
+```
+
+From a local checkout, use `cargo install --path crates/palletide-codegen --locked`.
+You can also run `cargo run -p palletide-codegen -- <command>` without installing.
+If the installed command is not found, add Cargo's binary directory (usually
+`~/.cargo/bin`) to your `PATH`.
 
 ## `check`
 
 ```bash
-subdex-codegen check <schema.graphql | schema-dir>
+palletide-codegen check <schema.graphql | schema-dir>
 ```
 
 Parse and validate a schema, printing the tables, columns, and indexes that would
@@ -16,7 +28,7 @@ a bad table.
 ## `generate`
 
 ```bash
-subdex-codegen generate <schema.graphql | schema-dir> [--out <dir>]
+palletide-codegen generate <schema.graphql | schema-dir> [--out <dir>]
 ```
 
 Generate, into `<dir>` (default `./generated`):
@@ -33,7 +45,7 @@ hand-edit the output. Pass a **directory** to concatenate a modular
 ## `new`
 
 ```bash
-subdex-codegen new <name> [--out <dir>]
+palletide-codegen new <name> [--out <dir>]
 ```
 
 Scaffold a runnable starter project into `<dir>` (default `./<name>`): a wired
@@ -42,6 +54,7 @@ Scaffold a runnable starter project into `<dir>` (default `./<name>`): a wired
 
 ```bash
 cd <name>
+cp .env.example .env
 docker compose up -d
 WS_URL=wss://rpc.polkadot.io cargo run
 ```

@@ -1,4 +1,4 @@
-# subdex — Postgres + an example indexer, runnable with `docker compose up`.
+# palletide — Postgres + an example indexer, runnable with `docker compose up`.
 #
 #   1. Set WS_URL to a Substrate node (env var or a local `.env`):
 #        WS_URL=wss://rpc.polkadot.io docker compose up --build
@@ -13,14 +13,14 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: subdex
+      POSTGRES_DB: palletide
     ports:
       - "55432:5432"
     volumes:
-      - subdex-pgdata:/var/lib/postgresql/data
+      - palletide-pgdata:/var/lib/postgresql/data
     healthcheck:
       # The indexer waits on this so it never races an unready database.
-      test: ["CMD-SHELL", "pg_isready -U postgres -d subdex"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d palletide"]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -40,7 +40,7 @@ services:
       # startup if it's unset.
       WS_URL: ${WS_URL:-}
       # Point at the db service (in-network host/port, not the published 55432).
-      DATABASE_URL: postgres://postgres:postgres@db:5432/subdex
+      DATABASE_URL: postgres://postgres:postgres@db:5432/palletide
       GRAPHQL_PORT: "4350"
       RUST_LOG: ${RUST_LOG:-info}
       # Optional tuning — uncomment to override the example defaults.
@@ -70,4 +70,4 @@ services:
       start_period: 120s
 
 volumes:
-  subdex-pgdata:
+  palletide-pgdata:

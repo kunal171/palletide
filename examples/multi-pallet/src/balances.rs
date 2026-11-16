@@ -6,9 +6,9 @@
 //! commit atomically with the cursor *and* with the other handler's writes.
 
 use async_trait::async_trait;
-use subdex::{Block, Handler, Result, Store, SubdexError};
-use subdex_source::value::{field_account_ss58, field_u128};
-use subdex_store::PgStore;
+use palletide::{Block, Handler, PalletideError, Result, Store};
+use palletide_source::value::{field_account_ss58, field_u128};
+use palletide_store::PgStore;
 
 /// Indexes `Balances.Transfer { from, to, amount }` events.
 pub struct BalancesHandler;
@@ -28,7 +28,7 @@ impl Handler<PgStore> for BalancesHandler {
         )
         .execute(store.pool())
         .await
-        .map_err(|e| SubdexError::Handler(format!("create balance_transfers: {e}")))?;
+        .map_err(|e| PalletideError::Handler(format!("create balance_transfers: {e}")))?;
         Ok(())
     }
 
@@ -58,7 +58,7 @@ impl Handler<PgStore> for BalancesHandler {
             .bind(amount.map(|v| v.to_string()))
             .execute(&mut **tx)
             .await
-            .map_err(|e| SubdexError::Handler(format!("insert balance_transfer: {e}")))?;
+            .map_err(|e| PalletideError::Handler(format!("insert balance_transfer: {e}")))?;
         }
         Ok(())
     }

@@ -1,4 +1,4 @@
-# subdex indexer commands. Install `just` (https://github.com/casey/just), then
+# palletide indexer commands. Install `just` (https://github.com/casey/just), then
 # run e.g. `just up`, `just codegen`, `just run`. (Every recipe is just a shell
 # command — you can run them by hand without `just`.)
 
@@ -15,7 +15,7 @@ down:
 
 # Regenerate src/generated/{entities,graphql}.rs + migrations/ from schema.graphql.
 codegen:
-    subdex-codegen generate schema.graphql --out src/generated
+    palletide-codegen generate schema.graphql --out src/generated
     # the migration lands in src/generated/migrations; move it next to the crate:
     cp -f src/generated/migrations/*.sql migrations/ 2>/dev/null || true
 
@@ -33,4 +33,4 @@ backfill:
 
 # Open a psql shell against the indexer DB.
 psql:
-    psql postgres://postgres:postgres@localhost:55432/subdex
+    psql postgres://postgres:postgres@localhost:55432/palletide

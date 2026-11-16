@@ -1,0 +1,34 @@
+[package]
+name = "palletide"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The palletide indexing engine: drives a DataSource through Handlers into a Store, with resumable progress and reorg handling."
+
+[dependencies]
+palletide-core.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+futures.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+# Optional: Prometheus metrics observer + /metrics endpoint. Off by default;
+# enable with `--features metrics`.
+metrics = { workspace = true, optional = true }
+metrics-exporter-prometheus = { workspace = true, optional = true }
+
+[features]
+default = []
+# Ships PrometheusObserver + a /metrics HTTP endpoint (see src/metrics.rs).
+metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]
+
+[dev-dependencies]
+tokio = { workspace = true }
+# End-to-end integration tests use the real source + store.
+palletide-source.workspace = true
+palletide-store.workspace = true
+sqlx.workspace = true
+scale-value.workspace = true

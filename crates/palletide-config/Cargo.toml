@@ -1,0 +1,17 @@
+[package]
+name = "palletide-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Typed, layered (TOML + env) configuration loader for palletide indexers."
+
+[dependencies]
+palletide-source.workspace = true
+palletide-store.workspace = true
+palletide.workspace = true
+serde.workspace = true
+toml.workspace = true
+dotenvy.workspace = true
+thiserror.workspace = true

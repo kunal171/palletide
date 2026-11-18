@@ -48,6 +48,20 @@ An indexer is one `Handler` you write, plus wiring the framework provides:
 
 ---
 
+## Register tables for reorg rollback
+
+In your handler's `init`, after creating tables or applying migrations, call
+`store.track_table("your_table").await?` for every chain-derived table. With
+schema-generated entities, call `generated::entities::register_entities(store).await?`
+after applying migrations instead.
+
+The store journals inserts, updates, and deletes and restores them atomically
+with the cursor on a fork. Tracked tables require a primary key, and writes must
+use the processor transaction. Tracked handlers receive singleton batches for
+exact block attribution; the fetched batch still commits once. See the
+[reorg guide](https://kunal171.github.io/palletide/reorgs.html) for retention,
+existing-database upgrades, and table limitations.
+
 ## 1. Choose a data source
 
 A `DataSource` produces decoded blocks. Three ship with palletide — pick by whether

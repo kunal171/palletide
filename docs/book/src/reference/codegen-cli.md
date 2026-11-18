@@ -61,3 +61,10 @@ WS_URL=wss://rpc.polkadot.io cargo run
 
 See the [starter template](../starter-template.md) for the schema-first variant
 that also commits the generated code.
+
+## Enable entity rollback
+
+After applying the generated migrations in `Handler::init`, call
+`generated::entities::register_entities(store).await?`. This registers every
+entity table for durable reorg undo. Regenerating Rust entities does not modify
+already-applied SQL migration files. See [reorgs](../reorgs.md).

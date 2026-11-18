@@ -30,6 +30,7 @@ impl Handler<PgStore> for MyHandler {
     /// Apply the generated migration once at startup.
     async fn init(&self, store: &PgStore) -> Result<()> {
         store.run_handler_migrations(&MIGRATOR, self.name()).await?;
+        crate::generated::entities::register_entities(store).await?;
 
         // OPTIONAL — fast backfill: drop the `@index` on `block_height` while
         // bulk-inserting, and let the framework recreate it at head. Only drops on

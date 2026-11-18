@@ -168,11 +168,11 @@ where
             if let Some(last) = batch.blocks.last() {
                 self.observer.on_head(last.id.number);
             }
-            // Commit the tip batch in one transaction (same path as backfill).
-            // Reorgs are handled inside; on a reorg we simply continue — the next
-            // stream batches re-deliver the corrected chain (the source drives
-            // ordering at the tip).
-            let _ = self.process_batch_blocks(&batch.blocks).await?;
+            // A live subscription need not replay the blocks preceding this tip.
+            // Refill the corrected chain explicitly after rewinding a fork.
+            if self.process_batch_blocks(&batch.blocks).await?.is_some() {
+                self.backfill().await?;
+            }
         }
         Ok(())
     }
@@ -204,7 +204,9 @@ where
                 self.observer.on_head(last.id.number);
             }
             // Commit the tip batch in one transaction (reorg-aware).
-            let _ = self.process_batch_blocks(&batch.blocks).await?;
+            if self.process_batch_blocks(&batch.blocks).await?.is_some() {
+                self.backfill().await?;
+            }
         }
     }
 
@@ -256,6 +258,9 @@ where
     /// back) and the error is returned — nothing is half-written.
     pub async fn commit_block(&self, block: &Block) -> Result<()> {
         let mut tx = self.store.begin().await?;
+        self.store
+            .set_block_context(&mut tx, block.id.number)
+            .await?;
 
         for h in &self.handlers {
             h.process_block(block, &mut tx).await?;
@@ -385,6 +390,21 @@ where
             })
     }
 
+    async fn write_handlers<'a>(&self, blocks: &[Block], tx: &mut St::Tx<'a>) -> Result<()> {
+        let prepared =
+            futures::future::try_join_all(self.handlers.iter().map(|h| h.prepare(blocks)))
+                .await
+                .inspect_err(|e| self.observer.on_error("prepare", &e.to_string()))?;
+        for (handler, prepared) in self.handlers.iter().zip(prepared) {
+            match prepared {
+                Some(rows) => rows.write(tx).await,
+                None => handler.process_batch(blocks, tx).await,
+            }
+            .inspect_err(|e| self.observer.on_error("handler", &e.to_string()))?;
+        }
+        Ok(())
+    }
+
     /// Commit a batch of blocks atomically. Runs every handler over all the blocks
     /// in **two phases** — a concurrent compute phase then a serial write phase —
     /// advances the cursor to the last block, and commits once. A handler error
@@ -392,41 +412,35 @@ where
     /// ever persisted.
     ///
     /// **Phase 1 (concurrent):** every handler's [`prepare`](palletide_core::Handler::prepare)
-    /// runs at once (`try_join_all`), off the transaction — a multi-handler
+    /// runs at once (`try_join_all`) without receiving the transaction — a multi-handler
     /// indexer's decode work overlaps instead of summing. A handler that doesn't
     /// override `prepare` returns `None` and is handled by its `process_batch` in
     /// phase 2 (backwards-compatible).
     ///
     /// **Phase 2 (serial):** on the one shared transaction, in handler order, each
     /// prepared result is `write`n (or, for `None`, `process_batch` is run). Writes
-    /// stay serial so the batch is still all-or-nothing.
+    /// stay serial so the batch is still all-or-nothing. Stores requiring block
+    /// context receive singleton handler batches, in block order, on this same
+    /// transaction so a fork can restore the exact block state.
     pub async fn commit_batch(&self, blocks: &[Block]) -> Result<()> {
         if blocks.is_empty() {
             return Ok(());
         }
         let commit_start = Instant::now();
 
-        // Phase 1 — prepare ALL handlers concurrently (pure compute, no tx). Order
-        // is preserved by try_join_all so `prepared[i]` belongs to `handlers[i]`.
-        let prepared =
-            futures::future::try_join_all(self.handlers.iter().map(|h| h.prepare(blocks)))
-                .await
-                .inspect_err(|e| self.observer.on_error("prepare", &e.to_string()))?;
-
-        // Phase 2 — write serially on the one shared transaction, in handler order.
         let mut tx = self.store.begin().await?;
-        for (h, p) in self.handlers.iter().zip(prepared) {
-            match p {
-                Some(prepared) => prepared
-                    .write(&mut tx)
-                    .await
-                    .inspect_err(|e| self.observer.on_error("handler", &e.to_string()))?,
-                // No separate compute phase: run the handler's batch path now.
-                None => h
-                    .process_batch(blocks, &mut tx)
-                    .await
-                    .inspect_err(|e| self.observer.on_error("handler", &e.to_string()))?,
+        if self.store.requires_block_context() {
+            // Attribute every mutation to its actual block, including changes to
+            // older entities. Keep the whole fetched batch on one transaction.
+            for block in blocks {
+                self.store
+                    .set_block_context(&mut tx, block.id.number)
+                    .await?;
+                self.write_handlers(std::slice::from_ref(block), &mut tx)
+                    .await?;
             }
+        } else {
+            self.write_handlers(blocks, &mut tx).await?;
         }
 
         // Record every block's hash (needed for reorg detection); the cursor

@@ -375,7 +375,8 @@ async fn handler_migrations_apply_once_in_order_and_are_idempotent() {
         .await
         .expect("count framework");
     assert_eq!(
-        framework, 1,
+        framework,
+        palletide_store::MIGRATOR.iter().count() as i64,
         "framework table untouched by handler migrations"
     );
 
@@ -526,4 +527,311 @@ async fn defer_index_on_a_resumed_db_only_ensures_the_index() {
     );
 
     drop_db("defer_idx_resume").await;
+}
+
+async fn apply_entity_block(store: &PgStore, height: u32, statements: &[&'static str]) {
+    let mut tx = store.begin().await.unwrap();
+    store.set_block_context(&mut tx, height).await.unwrap();
+    for statement in statements {
+        sqlx::raw_sql(*statement).execute(&mut *tx).await.unwrap();
+    }
+    store
+        .set_cursor(
+            &mut tx,
+            &block(height, &format!("0x{height:x}"), "0xparent", 1),
+        )
+        .await
+        .unwrap();
+    store.commit(tx).await.unwrap();
+}
+
+async fn undo_count(store: &PgStore) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM palletide_entity_undo")
+        .fetch_one(store.pool())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+#[ignore = "database: needs Postgres; run with --ignored"]
+async fn entities_restore_insert_update_delete_and_primary_key_changes_after_restart() {
+    let url = make_db("entity_restore").await;
+    let store = PgStore::connect(StoreConfig::new(&url)).await.unwrap();
+    store.init().await.unwrap();
+    sqlx::raw_sql("CREATE TABLE accounts (id TEXT PRIMARY KEY, balance NUMERIC NOT NULL); INSERT INTO accounts VALUES ('alice', 10), ('bob', 20)")
+        .execute(store.pool()).await.unwrap();
+    store.track_table("accounts").await.unwrap();
+    store.track_table("accounts").await.unwrap();
+    apply_entity_block(
+        &store,
+        1,
+        &[
+            "UPDATE accounts SET balance = 100 WHERE id = 'alice'",
+            "DELETE FROM accounts WHERE id = 'bob'",
+            "INSERT INTO accounts VALUES ('charlie', 30)",
+        ],
+    )
+    .await;
+    apply_entity_block(
+        &store,
+        2,
+        &[
+            "UPDATE accounts SET id = 'renamed', balance = 200 WHERE id = 'alice'",
+            "UPDATE accounts SET balance = 300 WHERE id = 'charlie'",
+        ],
+    )
+    .await;
+    // Reconnect without registering again: both registration and undo survive.
+    store.pool().close().await;
+    let store = PgStore::connect(StoreConfig::new(&url)).await.unwrap();
+    store.init().await.unwrap();
+    assert!(store.requires_block_context());
+    store.rollback_to(1).await.unwrap();
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, balance::text FROM accounts ORDER BY id")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            ("alice".into(), "100".into()),
+            ("charlie".into(), "30".into())
+        ]
+    );
+    assert_eq!(store.cursor().await.unwrap().unwrap().number, 1);
+    store.rollback_to(0).await.unwrap();
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, balance::text FROM accounts ORDER BY id")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        rows,
+        vec![("alice".into(), "10".into()), ("bob".into(), "20".into())]
+    );
+    assert!(store.cursor().await.unwrap().is_none());
+    assert_eq!(undo_count(&store).await, 0);
+    store.rollback_to(0).await.unwrap(); // idempotent
+    drop_db("entity_restore").await;
+}
+
+#[tokio::test]
+#[ignore = "database: needs Postgres; run with --ignored"]
+async fn entity_restore_failure_keeps_cursor_rows_and_undo_atomic() {
+    let url = make_db("entity_atomic").await;
+    let store = PgStore::connect(StoreConfig::new(&url)).await.unwrap();
+    store.init().await.unwrap();
+    sqlx::raw_sql("CREATE TABLE accounts (id TEXT PRIMARY KEY, balance INT); INSERT INTO accounts VALUES ('alice', 10)")
+        .execute(store.pool()).await.unwrap();
+    store.track_table("accounts").await.unwrap();
+    apply_entity_block(
+        &store,
+        1,
+        &[
+            "UPDATE accounts SET balance = 100 WHERE id = 'alice'",
+            "INSERT INTO accounts VALUES ('orphan', 200)",
+        ],
+    )
+    .await;
+    // Inject a restoration failure after the orphan deletion would have run.
+    sqlx::query("ALTER TABLE accounts ADD CHECK (balance >= 50)")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    assert!(store.rollback_to(0).await.is_err());
+    assert_eq!(store.cursor().await.unwrap().unwrap().number, 1);
+    assert_eq!(undo_count(&store).await, 2);
+    let rows: Vec<(String, i32)> = sqlx::query_as("SELECT id, balance FROM accounts ORDER BY id")
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(rows, vec![("alice".into(), 100), ("orphan".into(), 200)]);
+    drop_db("entity_atomic").await;
+}
+
+#[tokio::test]
+#[ignore = "database: needs Postgres; run with --ignored"]
+async fn entity_undo_rejects_unattributed_writes_truncate_and_unavailable_history() {
+    let url = make_db("entity_bounds").await;
+    let store = PgStore::connect(StoreConfig::new(&url).with_reorg_retention(2))
+        .await
+        .unwrap();
+    store.init().await.unwrap();
+    sqlx::query("CREATE TABLE items (id INT PRIMARY KEY)")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    store.track_table("items").await.unwrap();
+    assert!(sqlx::query("INSERT INTO items VALUES (99)")
+        .execute(store.pool())
+        .await
+        .is_err());
+    assert!(sqlx::query("TRUNCATE items")
+        .execute(store.pool())
+        .await
+        .is_err());
+    for height in 1..=5 {
+        let mut tx = store.begin().await.unwrap();
+        store.set_block_context(&mut tx, height).await.unwrap();
+        sqlx::query("INSERT INTO items VALUES ($1)")
+            .bind(height as i32)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        store
+            .set_cursor(&mut tx, &block(height, "0xhash", "0xparent", 1))
+            .await
+            .unwrap();
+        store.commit(tx).await.unwrap();
+    }
+    assert_eq!(undo_count(&store).await, 3);
+    assert!(store
+        .rollback_to(1)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("pruned"));
+    assert_eq!(store.cursor().await.unwrap().unwrap().number, 5);
+    store.rollback_to(2).await.unwrap();
+    let ids: Vec<i32> = sqlx::query_scalar("SELECT id FROM items ORDER BY id")
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(ids, vec![1, 2]);
+    drop_db("entity_bounds").await;
+}
+
+#[tokio::test]
+#[ignore = "database: needs Postgres; run with --ignored"]
+async fn registering_existing_data_cannot_claim_older_undo_history() {
+    let url = make_db("entity_baseline").await;
+    let store = PgStore::connect(StoreConfig::new(&url)).await.unwrap();
+    store.init().await.unwrap();
+    commit_block(&store, &block(5, "0x5", "0x4", 1)).await;
+    sqlx::query("CREATE TABLE items (id INT PRIMARY KEY)")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    store.track_table("items").await.unwrap();
+    assert!(store
+        .rollback_to(4)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("tracking started"));
+    assert_eq!(store.cursor().await.unwrap().unwrap().number, 5);
+    drop_db("entity_baseline").await;
+}
+
+#[tokio::test]
+#[ignore = "database: needs Postgres; run with --ignored"]
+async fn entity_undo_handles_composite_keys_identity_generated_and_quoted_columns() {
+    let url = make_db("entity_types").await;
+    let store = PgStore::connect(StoreConfig::new(&url)).await.unwrap();
+    store.init().await.unwrap();
+    sqlx::raw_sql("CREATE SCHEMA custom; CREATE TABLE custom.\"order\" (id BIGINT GENERATED ALWAYS AS IDENTITY, \"from\" TEXT, amount INT, doubled INT GENERATED ALWAYS AS (amount * 2) STORED, PRIMARY KEY(id, \"from\")); INSERT INTO custom.\"order\" (\"from\", amount) VALUES ('alice', 10)")
+        .execute(store.pool()).await.unwrap();
+    store.track_table("custom.\"order\"").await.unwrap();
+    apply_entity_block(
+        &store,
+        1,
+        &[
+            "UPDATE custom.\"order\" SET amount = 20",
+            "DELETE FROM custom.\"order\"",
+        ],
+    )
+    .await;
+    store.rollback_to(0).await.unwrap();
+    let row: (i64, String, i32, i32) =
+        sqlx::query_as("SELECT id, \"from\", amount, doubled FROM custom.\"order\"")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(row, (1, "alice".into(), 10, 20));
+    drop_db("entity_types").await;
+}
+
+#[tokio::test]
+#[ignore = "database: needs Postgres; run with --ignored"]
+async fn aborted_entity_batch_leaves_no_rows_or_undo() {
+    let url = make_db("entity_abort").await;
+    let store = PgStore::connect(StoreConfig::new(&url)).await.unwrap();
+    store.init().await.unwrap();
+    sqlx::query("CREATE TABLE items (id INT PRIMARY KEY)")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    store.track_table("items").await.unwrap();
+    let mut tx = store.begin().await.unwrap();
+    store.set_block_context(&mut tx, 1).await.unwrap();
+    sqlx::query("INSERT INTO items VALUES (1)")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    store
+        .set_cursor(&mut tx, &block(1, "0x1", "0x0", 1))
+        .await
+        .unwrap();
+    tx.rollback().await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM items")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    assert_eq!(undo_count(&store).await, 0);
+    assert!(store.cursor().await.unwrap().is_none());
+    drop_db("entity_abort").await;
+}
+
+#[tokio::test]
+#[ignore = "database: needs Postgres; run with --ignored"]
+async fn tracking_rejects_unsupported_tables_and_restores_deferrable_relations() {
+    let url = make_db("entity_relations").await;
+    let store = PgStore::connect(StoreConfig::new(&url)).await.unwrap();
+    store.init().await.unwrap();
+    sqlx::raw_sql("CREATE TABLE no_key (id INT); CREATE TABLE parents (id INT PRIMARY KEY); CREATE TABLE children (id INT PRIMARY KEY, parent INT REFERENCES parents(id) DEFERRABLE INITIALLY DEFERRED); CREATE TABLE cascade_child (id INT PRIMARY KEY, parent INT REFERENCES parents(id) ON DELETE CASCADE)")
+        .execute(store.pool()).await.unwrap();
+    assert!(store
+        .track_table("no_key")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("primary key"));
+    assert!(store
+        .track_table("parents")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("cascading"));
+    assert!(store.track_table("palletide_block").await.is_err());
+    sqlx::query("DROP TABLE cascade_child")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    store.track_table("parents").await.unwrap();
+    store.track_table("children").await.unwrap();
+    apply_entity_block(
+        &store,
+        1,
+        &[
+            "INSERT INTO parents VALUES (1)",
+            "INSERT INTO children VALUES (1, 1)",
+        ],
+    )
+    .await;
+    apply_entity_block(&store, 2, &["DELETE FROM parents", "DELETE FROM children"]).await;
+    store.rollback_to(1).await.unwrap();
+    let parent: i32 = sqlx::query_scalar("SELECT parent FROM children")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(parent, 1);
+    store.rollback_to(0).await.unwrap();
+    let parents: i64 = sqlx::query_scalar("SELECT count(*) FROM parents")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(parents, 0);
+    drop_db("entity_relations").await;
 }

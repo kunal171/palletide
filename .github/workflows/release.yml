@@ -28,21 +28,25 @@ jobs:
           toolchain: "1.96.0"
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Check tag matches crate version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 --locked | jq -r '.packages[] | select(.name == "palletide") | .version')
+          test "${GITHUB_REF_NAME#v}" = "$version"
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo doc --workspace --no-deps
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo doc --workspace --no-deps --all-features --locked
         env:
           RUSTDOCFLAGS: "-D warnings"
-      - run: cargo test --workspace
+      - run: cargo test --workspace --all-features --locked
 
   # Publish the library crates to crates.io, in dependency order. Only on a
-  # final `vX.Y.Z` tag: pre-release tags cut a GitHub release but do not burn a
-  # crates.io version, which can never be reused once published.
+  # final `vX.Y.Z` tag with PUBLISH_CRATES=true and CARGO_REGISTRY_TOKEN set.
+  # Pre-release tags only cut GitHub releases; registry versions cannot be reused.
   publish-crates:
     name: publish to crates.io
     needs: verify
     runs-on: ubuntu-latest
-    if: ${{ !contains(github.ref_name, '-') }}
+    if: ${{ !contains(github.ref_name, '-') && vars.PUBLISH_CRATES == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -89,22 +93,27 @@ jobs:
           toolchain: "1.96.0"
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: Build example (release)
-        run: cargo build --release -p palletide-example-transfers --bin transfers --target ${{ matrix.target }}
+      - name: Build CLI and example (release)
+        run: cargo build --release --locked -p palletide-codegen -p palletide-example-transfers --target ${{ matrix.target }}
       - name: Package
         run: |
           tarball="palletide-transfers-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
           tar -C "target/${{ matrix.target }}/release" -czf "$tarball" transfers
-          echo "ARTIFACT=$tarball" >> "$GITHUB_ENV"
+          cli_tarball="palletide-codegen-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
+          tar -C "target/${{ matrix.target }}/release" -czf "$cli_tarball" palletide-codegen
+          sha256sum "$tarball" "$cli_tarball" > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: ${{ env.ARTIFACT }}
+          path: |
+            palletide-*.tar.gz
+            SHA256SUMS
 
   # Create the GitHub Release with auto-generated notes and the built artifacts.
   release:
     name: publish release
-    needs: build
+    needs: [build, publish-crates]
+    if: ${{ always() && needs.build.result == 'success' && (needs.publish-crates.result == 'success' || needs.publish-crates.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -124,12 +133,20 @@ jobs:
             echo "flag=" >> "$GITHUB_OUTPUT"
             echo "kind=release" >> "$GITHUB_OUTPUT"
           fi
+      - name: Prepare release notes
+        run: |
+          awk -v version="${GITHUB_REF_NAME#v}" '
+            $0 == "## " version { printing = 1; next }
+            printing && /^## / { exit }
+            printing { print }
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
+            --notes-file release-notes.md \
             ${{ steps.prerelease.outputs.flag }} \
-            artifacts/**/*.tar.gz
+            artifacts/**/*.tar.gz artifacts/**/SHA256SUMS

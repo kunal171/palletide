@@ -11,6 +11,10 @@ use async_trait::async_trait;
 use palletide_core::{Block, BlockId, BlockNumber, PalletideError, Result, Store};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, Transaction};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 /// A Postgres-backed store. Cheap to clone (holds a connection pool handle).
 #[derive(Clone)]
@@ -19,6 +23,7 @@ pub struct PgStore {
     /// Retained reorg window: rows more than this many blocks below the cursor
     /// are pruned on commit. `0` disables pruning. See [`StoreConfig::reorg_retention`].
     reorg_retention: u32,
+    tracking: Arc<AtomicBool>,
 }
 
 impl PgStore {
@@ -32,6 +37,7 @@ impl PgStore {
         Ok(Self {
             pool,
             reorg_retention: config.reorg_retention,
+            tracking: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -42,6 +48,7 @@ impl PgStore {
         Self {
             pool,
             reorg_retention: 0,
+            tracking: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -55,6 +62,21 @@ impl PgStore {
     /// entity tables against the same database).
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// Register a table for durable INSERT/UPDATE/DELETE rollback. Call after
+    /// creating the table in `Handler::init`; registration survives restarts.
+    /// Tables need a primary key. Writes must use the processor transaction;
+    /// TRUNCATE and schema changes while undo history exists are unsupported.
+    /// Register every application table whose state depends on indexed blocks.
+    pub async fn track_table(&self, table: &str) -> Result<()> {
+        sqlx::query("SELECT palletide_track_table($1::text::regclass)")
+            .bind(table)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| store_err("track entity table", e))?;
+        self.tracking.store(true, Ordering::Release);
+        Ok(())
     }
 
     /// Run a **handler's own** versioned migrations, tracked separately from the
@@ -208,6 +230,12 @@ impl Store for PgStore {
             .run(&self.pool)
             .await
             .map_err(|e| PalletideError::Store(format!("migrate: {e}")))?;
+        let tracking: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM palletide_entity_table)")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| store_err("load entity tracking", e))?;
+        self.tracking.store(tracking, Ordering::Release);
         Ok(())
     }
 
@@ -235,7 +263,29 @@ impl Store for PgStore {
     }
 
     async fn begin<'a>(&'a self) -> Result<Self::Tx<'a>> {
-        self.pool.begin().await.map_err(|e| store_err("begin", e))
+        let mut tx = self.pool.begin().await.map_err(|e| store_err("begin", e))?;
+        sqlx::query("SELECT pg_advisory_xact_lock(72548371044)")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| store_err("lock writer", e))?;
+        Ok(tx)
+    }
+
+    fn requires_block_context(&self) -> bool {
+        self.tracking.load(Ordering::Acquire)
+    }
+
+    async fn set_block_context<'a>(
+        &self,
+        tx: &mut Self::Tx<'a>,
+        height: BlockNumber,
+    ) -> Result<()> {
+        sqlx::query("SELECT set_config('palletide.block_height', $1, true)")
+            .bind(height.to_string())
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| store_err("set block context", e))?;
+        Ok(())
     }
 
     async fn set_cursor<'a>(&self, tx: &mut Self::Tx<'a>, block: &Block) -> Result<()> {
@@ -276,6 +326,18 @@ impl Store for PgStore {
                     .execute(&mut **tx)
                     .await
                     .map_err(|e| store_err("prune", e))?;
+                sqlx::query("DELETE FROM palletide_entity_undo WHERE block_height < $1")
+                    .bind(prune_below as i64)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|e| store_err("prune entity undo", e))?;
+                sqlx::query(
+                    "UPDATE palletide_undo_state SET pruned_through = GREATEST(pruned_through, $1)",
+                )
+                .bind(prune_below as i64 - 1)
+                .execute(&mut **tx)
+                .await
+                .map_err(|e| store_err("advance undo boundary", e))?;
             }
         }
         Ok(())
@@ -286,15 +348,12 @@ impl Store for PgStore {
     }
 
     async fn rollback_to(&self, height: BlockNumber) -> Result<()> {
-        // Delete bookkeeping rows strictly above `height`. Handler entity rows
-        // are rolled back by the processor (which knows the user tables); this
-        // method owns only the framework's own table. Done in its own
-        // transaction so it is atomic.
-        let mut tx = self
-            .pool
-            .begin()
+        let mut tx = self.begin().await?;
+        sqlx::query("SELECT palletide_restore_entities($1)")
+            .bind(height as i64)
+            .execute(&mut *tx)
             .await
-            .map_err(|e| store_err("rollback begin", e))?;
+            .map_err(|e| store_err("restore entities", e))?;
         sqlx::query("DELETE FROM palletide_block WHERE height > $1")
             .bind(height as i64)
             .execute(&mut *tx)

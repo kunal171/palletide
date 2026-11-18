@@ -148,6 +148,14 @@ It is **both** the cursor (the max-height row is "where we are") and the
 reorg-detection record (compare an incoming block's `parent_hash` to the stored
 hash of its parent height).
 
+### `migrations/0002_entity_undo.sql` — entity restoration
+
+Registers application tables and installs row triggers that journal inserts,
+updates, and deletes with their block height. The restore function reverses
+those entries before the cursor is rewound. The registration and journal are
+durable; retention prunes old undo history. See the
+[reorg guide](https://kunal171.github.io/palletide/reorgs.html) for supported tables.
+
 ### `schema.rs` — embedded migrator
 
 `MIGRATOR` uses `sqlx::migrate!("./migrations")`, which embeds the SQL into the
@@ -164,7 +172,8 @@ Implements `Store`:
 - `set_cursor(tx, block)` → an **idempotent upsert** (`INSERT … ON CONFLICT
   (height) DO UPDATE`) recording hash/parent_hash/timestamp/spec_version. Idempotent
   so re-indexing a height after a rollback just overwrites the row.
-- `rollback_to(height)` → `DELETE FROM palletide_block WHERE height > $1`, in its own
+- `rollback_to(height)` → reverse the durable journal for registered entity tables,
+  then delete bookkeeping above the fork, in one
   transaction.
 
 `pool()` exposes the underlying `PgPool` so a handler's `init` can create its own

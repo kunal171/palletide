@@ -108,3 +108,6 @@ jobs:
 
       - name: GraphQL integration tests
         run: cargo test -p palletide-graphql --test serve -- --ignored
+
+      - name: Processor reorg integration tests
+        run: cargo test -p palletide --test reorg_pg -- --ignored

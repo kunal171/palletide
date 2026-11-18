@@ -46,7 +46,20 @@ pub fn field_u128(value: &Value, name: &str) -> Option<u128> {
 ///
 /// [palletide-codegen]: https://github.com/kunal171/palletide
 pub fn field_bigint(value: &Value, name: &str) -> Option<String> {
-    field_u128(value, name).map(|n| n.to_string())
+    match &field(value, name)?.value {
+        ValueDef::Primitive(Primitive::String(s))
+            if s.strip_prefix('-')
+                .unwrap_or(s)
+                .bytes()
+                .all(|b| b.is_ascii_digit())
+                && !s.is_empty()
+                && s != "-" =>
+        {
+            Some(s.clone())
+        }
+        ValueDef::Primitive(Primitive::I128(n)) => Some(n.to_string()),
+        _ => field_u128(value, name).map(|n| n.to_string()),
+    }
 }
 
 /// Read a named field as a `bool` (a boolean primitive).
@@ -114,6 +127,7 @@ impl std::error::Error for MissingField {}
 pub fn as_u128(value: &Value) -> Option<u128> {
     match &value.value {
         ValueDef::Primitive(Primitive::U128(n)) => Some(*n),
+        ValueDef::Primitive(Primitive::String(s)) => s.parse().ok(),
         ValueDef::Primitive(Primitive::U256(bytes)) => {
             if bytes[16..].iter().all(|b| *b == 0) {
                 let mut buf = [0u8; 16];
@@ -134,6 +148,9 @@ pub fn as_u128(value: &Value) -> Option<u128> {
 /// Returns `None` if the value isn't exactly 32 bytes (so a mis-shaped value
 /// yields no address rather than a wrong one).
 pub fn as_account_ss58(value: &Value, prefix: u16) -> Option<String> {
+    if prefix > 16383 || matches!(prefix, 46 | 47) {
+        return None;
+    }
     let bytes = collect_bytes(value)?;
     let arr: [u8; 32] = bytes.try_into().ok()?;
     Some(crate::ss58::encode(&arr, prefix))
@@ -161,6 +178,7 @@ fn collect_bytes(value: &Value) -> Option<Vec<u8>> {
                 None
             }
         }
+        ValueDef::Primitive(Primitive::String(s)) => hex::decode(s.strip_prefix("0x")?).ok(),
         _ => None,
     }
 }

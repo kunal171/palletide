@@ -23,7 +23,7 @@ pub fn render(schema: &Schema) -> String {
         out.push_str(&render_table(e));
         out.push('\n');
     }
-    out
+    format!("{}\n", out.trim_end())
 }
 
 fn render_table(e: &Entity) -> String {

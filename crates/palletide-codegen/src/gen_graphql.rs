@@ -37,25 +37,32 @@ pub const GENERATED_HEADER: &str = "\
 
 /// Render the whole `graphql.rs` for a schema.
 pub fn render(schema: &Schema) -> String {
-    let mut out = String::new();
-    out.push_str(GENERATED_HEADER);
-    out.push('\n');
-    out.push_str("#![allow(dead_code)]\n\n");
-    out.push_str(
-        "use async_graphql::{Context, MergedObject, Object, SimpleObject};\n\
-         use sqlx::{PgPool, Row};\n\
-         use palletide_graphql::StatusQuery;\n\n",
-    );
-
-    for e in &schema.entities {
-        out.push_str(&render_read_model(e));
-        out.push('\n');
-        out.push_str(&render_query(e));
-        out.push('\n');
+    let mut out = String::from(GENERATED_HEADER);
+    out.push_str("\n#![allow(dead_code, clippy::too_many_arguments)]\nuse async_graphql::{Context, MergedObject, Object, SimpleObject, ComplexObject};\nuse sqlx::{PgPool, Row};\nuse palletide_graphql::{StatusQuery, QueryColumn, EntityFilter, query_entities, encode_cursor};\n");
+    for entity in &schema.entities {
+        out.push_str(&render_read_model(entity));
+        out.push_str(&render_query(entity));
+        out.push_str(&render_relations(entity, schema));
     }
-
     out.push_str(&render_root(schema));
     out
+}
+
+fn meta(e: &Entity) -> String {
+    format!(
+        "{}_COLUMNS",
+        crate::model::to_snake_case(&e.name).to_ascii_uppercase()
+    )
+}
+fn selected(e: &Entity) -> String {
+    e.fields
+        .iter()
+        .map(select_expr)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+fn type_name(e: &Entity) -> String {
+    crate::model::rust_ident(&e.name)
 }
 
 /// The GraphQL type for a field: the same scalars as the Rust model, except JSON
@@ -84,113 +91,163 @@ fn select_expr(f: &crate::model::Field) -> String {
         FieldType::Scalar(Scalar::BigInt) | FieldType::Scalar(Scalar::Json) => {
             format!("{col}::text AS {col}")
         }
+        FieldType::ScalarList(Scalar::BigInt | Scalar::Json) => {
+            format!("CASE WHEN {col} IS NULL THEN NULL ELSE ARRAY(SELECT v::text FROM unnest({col}) v) END AS {col}")
+        }
         _ => col,
     }
 }
 
 fn render_read_model(e: &Entity) -> String {
-    let mut s = String::new();
-    s.push_str(&format!(
-        "/// A row of the `{}` table, exposed as a GraphQL type.\n",
-        e.table
-    ));
-    s.push_str("#[derive(SimpleObject, Debug, Clone)]\n");
-    s.push_str(&format!("pub struct {} {{\n", e.name));
+    let name = type_name(e);
+    let mut out = format!("#[derive(SimpleObject, Debug, Clone, serde::Serialize)]\n#[graphql(complex, name = \"{}\")]\npub struct {name} {{\n", e.name);
     for f in &e.fields {
-        s.push_str(&format!("    pub {}: {},\n", f.column, gql_type(f)));
+        let identifier = crate::model::rust_ident(&f.column);
+        out.push_str(&format!("    #[serde(rename = \"{}\")]\n", f.column));
+        if matches!(f.ty, FieldType::Relation(_)) {
+            out.push_str("    #[graphql(skip)]\n");
+        } else {
+            out.push_str(&format!("    #[graphql(name = \"{}\")]\n", f.name));
+        }
+        out.push_str(&format!("    pub {identifier}: {},\n", gql_type(f)));
     }
-    s.push_str("}\n");
-    s
+    out.push_str("}\n");
+    out.push_str(&format!("impl {name} {{ fn _palletide_from_row(row: sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {{ Ok(Self {{\n"));
+    for f in &e.fields {
+        out.push_str(&format!(
+            "{}: row.try_get(\"{}\")?,\n",
+            crate::model::rust_ident(&f.column),
+            f.column
+        ));
+    }
+    out.push_str("}) } }\n");
+    out
 }
 
 fn render_query(e: &Entity) -> String {
-    let table = &e.table;
-    let id_col = e
-        .id_field()
-        .map(|f| quote_ident(&f.column))
-        .unwrap_or_else(|| "\"id\"".to_string());
-    let select_list = e
-        .fields
-        .iter()
-        .map(select_expr)
-        .collect::<Vec<_>>()
-        .join(", ");
-    let row_binds = e
-        .fields
-        .iter()
-        .map(|f| format!("                {}: r.get(\"{}\"),", f.column, f.column))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let columns = meta(e);
+    let mut out = format!("const {columns}: &[QueryColumn] = &[\n");
+    for f in &e.fields {
+        out.push_str(&format!(
+            "QueryColumn {{ name: \"{}\", column: \"{}\", cast: \"{}\", filterable: {} }},\n",
+            f.name,
+            f.column,
+            f.pg_type(),
+            f.indexed || f.unique || f.is_id || matches!(f.ty, FieldType::Relation(_))
+        ));
+    }
+    out.push_str("];\n");
+    let name = type_name(e);
+    let query_name = format!("{}Query", e.name);
+    let method = crate::model::rust_ident(&(crate::model::to_snake_case(&e.name) + "s"));
+    let select = selected(e);
+    out.push_str(&format!(r##"
+#[derive(Default)]
+pub struct {query_name};
+#[Object]
+impl {query_name} {{
+    async fn {method}(&self, ctx: &Context<'_>, limit: Option<i32>, id: Option<String>,
+        filters: Option<Vec<EntityFilter>>, order_by: Option<String>, descending: Option<bool>, after: Option<String>) -> async_graphql::Result<Vec<{name}>> {{
+        let pool = ctx.data::<PgPool>()?;
+        let mut filters = filters.unwrap_or_default();
+        if let Some(id) = id {{ filters.push(EntityFilter {{field: "id".into(), eq: Some(id), ..Default::default()}}); }}
+        let rows = query_entities(pool, "{table}", r#"{select}"#, {columns}, filters, order_by, descending.unwrap_or(true), after, limit.unwrap_or(25)).await?;
+        Ok(rows.into_iter().map({name}::_palletide_from_row).collect::<Result<Vec<_>, _>>()?)
+    }}
+    async fn {method}_count(&self, ctx: &Context<'_>) -> async_graphql::Result<i64> {{
+        Ok(sqlx::query_scalar(r#"SELECT count(*) FROM {tableq}"#).fetch_one(ctx.data::<PgPool>()?).await?)
+    }}
+}}
+"##, table=e.table, tableq=quote_ident(&e.table)));
+    out
+}
 
-    let mut s = String::new();
-    s.push_str(&format!(
-        "/// Query resolvers for the `{}` table.\n#[derive(Default)]\npub struct {}Query;\n\n",
-        e.table, e.name
-    ));
-    s.push_str(&format!("#[Object]\nimpl {}Query {{\n", e.name));
-
-    // --- list resolver ---
-    s.push_str(&format!(
-        "    /// List `{table}` rows, newest `id` first. `limit` is clamped to\n\
-         \x20   /// `[1, 200]` (default 25); `id` optionally filters to one row.\n"
-    ));
-    s.push_str(&format!(
-        "    async fn {snake}(\n\
-         \x20       &self,\n\
-         \x20       ctx: &Context<'_>,\n\
-         \x20       limit: Option<i32>,\n\
-         \x20       id: Option<String>,\n\
-         \x20   ) -> async_graphql::Result<Vec<{name}>> {{\n",
-        snake = crate::model::to_snake_case(&e.name) + "s",
-        name = e.name,
-    ));
-    s.push_str("        let pool = ctx.data::<PgPool>()?;\n");
-    s.push_str("        let limit = limit.unwrap_or(25).clamp(1, 200) as i64;\n");
-    // Two static, parameterized queries (with/without the id filter). The SQL is
-    // emitted as a *raw* Rust literal (`r#"…"#`) because the select list contains
-    // double-quoted identifiers (`"from"`, `"id"`) — a plain "…" literal would be
-    // terminated by the first embedded quote and would not compile.
-    let sql_filtered = format!(
-        "SELECT {select_list} FROM {table} WHERE {id_col} = $1 ORDER BY {id_col} DESC LIMIT $2"
+fn render_relations(e: &Entity, schema: &Schema) -> String {
+    let name = type_name(e);
+    let columns = meta(e);
+    let mut out = format!(
+        r#"
+#[ComplexObject]
+impl {name} {{
+    #[graphql(name = "_cursor")]
+    async fn _palletide_cursor(&self, order_by: Option<String>, descending: Option<bool>) -> async_graphql::Result<String> {{
+        encode_cursor(&serde_json::to_value(self)?, {columns}, order_by.as_deref(), descending.unwrap_or(true))
+    }}
+"#
     );
-    let sql_all = format!("SELECT {select_list} FROM {table} ORDER BY {id_col} DESC LIMIT $1");
-    s.push_str(&format!(
-        "        let rows = match id {{\n\
-         \x20           Some(id) => {{\n\
-         \x20               sqlx::query(r#\"{sql_filtered}\"#)\n\
-         \x20                   .bind(id)\n\
-         \x20                   .bind(limit)\n\
-         \x20                   .fetch_all(pool)\n\
-         \x20                   .await?\n\
-         \x20           }}\n\
-         \x20           None => {{\n\
-         \x20               sqlx::query(r#\"{sql_all}\"#)\n\
-         \x20                   .bind(limit)\n\
-         \x20                   .fetch_all(pool)\n\
-         \x20                   .await?\n\
-         \x20           }}\n\
-         \x20       }};\n"
-    ));
-    s.push_str("        Ok(rows\n            .into_iter()\n");
-    s.push_str(&format!(
-        "            .map(|r| {name} {{\n{row_binds}\n            }})\n",
-        name = e.name,
-    ));
-    s.push_str("            .collect())\n");
-    s.push_str("    }\n\n");
-
-    // --- count resolver ---
-    s.push_str(&format!(
-        "    /// Total number of `{table}` rows.\n\
-         \x20   async fn {snake}_count(&self, ctx: &Context<'_>) -> async_graphql::Result<i64> {{\n\
-         \x20       let pool = ctx.data::<PgPool>()?;\n\
-         \x20       let row = sqlx::query(\"SELECT count(*) AS n FROM {table}\").fetch_one(pool).await?;\n\
-         \x20       Ok(row.get(\"n\"))\n\
-         \x20   }}\n",
-        snake = crate::model::to_snake_case(&e.name) + "s",
-    ));
-    s.push_str("}\n");
-    s
+    for field in &e.fields {
+        let FieldType::Relation(target) = &field.ty else {
+            continue;
+        };
+        let target = schema.entity(target).expect("validated relation");
+        let target_name = type_name(target);
+        let identifier = crate::model::rust_ident(&field.column);
+        let return_type = if field.nullable {
+            format!("Option<{target_name}>")
+        } else {
+            target_name.clone()
+        };
+        out.push_str(&format!("#[graphql(name = \"{}\")]\nasync fn {identifier}(&self, ctx: &Context<'_>) -> async_graphql::Result<{return_type}> {{\n", field.name));
+        if field.nullable {
+            out.push_str(&format!(
+                "let Some(id) = self.{identifier}.clone() else {{ return Ok(None); }};\n"
+            ));
+        } else {
+            out.push_str(&format!("let id = self.{identifier}.clone();\n"));
+        }
+        out.push_str(&format!(r##"let mut rows = query_entities(ctx.data::<PgPool>()?, "{table}", r#"{select}"#, {columns}, vec![EntityFilter {{field: "id".into(), eq: Some(id), ..Default::default()}}], None, true, None, 1).await?;
+let value = rows.pop().map({target_name}::_palletide_from_row).transpose()?;
+"##, table=target.table, select=selected(target), columns=meta(target)));
+        if field.nullable {
+            out.push_str("Ok(value)\n}\n");
+        } else {
+            out.push_str(
+                "value.ok_or_else(|| async_graphql::Error::new(\"related entity missing\"))\n}\n",
+            );
+        }
+    }
+    for relation in &e.derived {
+        let target = schema
+            .entity(&relation.target)
+            .expect("validated derived relation");
+        let target_name = type_name(target);
+        let identifier = crate::model::rust_ident(&crate::model::to_snake_case(&relation.name));
+        let return_type = if relation.many {
+            format!("Vec<{target_name}>")
+        } else if relation.nullable {
+            format!("Option<{target_name}>")
+        } else {
+            target_name.clone()
+        };
+        let id = crate::model::rust_ident(&e.id_field().unwrap().column);
+        let pagination = if relation.many {
+            ", limit: Option<i32>, after: Option<String>"
+        } else {
+            ""
+        };
+        let page_after = if relation.many { "after" } else { "None" };
+        let page_limit = if relation.many {
+            "limit.unwrap_or(25)"
+        } else {
+            "2"
+        };
+        out.push_str(&format!("#[graphql(name = \"{}\")]\nasync fn {identifier}(&self, ctx: &Context<'_>{pagination}) -> async_graphql::Result<{return_type}> {{\n", relation.name));
+        out.push_str(&format!(r##"let rows = query_entities(ctx.data::<PgPool>()?, "{table}", r#"{select}"#, {columns}, vec![EntityFilter {{field: "{field}".into(), eq: Some(self.{id}.clone()), ..Default::default()}}], None, true, {page_after}, {page_limit}).await?;
+let {mutable}values = rows.into_iter().map({target_name}::_palletide_from_row).collect::<Result<Vec<_>, _>>()?;
+"##, table=target.table, select=selected(target), columns=meta(target), field=relation.field, mutable=if relation.many {""} else {"mut "}));
+        if !relation.many {
+            out.push_str("if values.len() > 1 { return Err(async_graphql::Error::new(\"reverse relation is not unique\")); }\n");
+        }
+        if relation.many {
+            out.push_str("Ok(values)\n}\n");
+        } else if relation.nullable {
+            out.push_str("Ok(values.pop())\n}\n");
+        } else {
+            out.push_str("values.pop().ok_or_else(|| async_graphql::Error::new(\"related entity missing\"))\n}\n");
+        }
+    }
+    out.push_str("}\n");
+    out
 }
 
 fn render_root(schema: &Schema) -> String {
@@ -232,7 +289,7 @@ mod tests {
             "type Transfer @entity { id: ID! amount: BigInt! from: String! @index count: Int }",
         );
         // Read model.
-        assert!(out.contains("#[derive(SimpleObject, Debug, Clone)]"));
+        assert!(out.contains("#[derive(SimpleObject, Debug, Clone, serde::Serialize)]"));
         assert!(out.contains("pub struct Transfer {"));
         assert!(out.contains("pub amount: String,")); // BigInt -> decimal String
         assert!(out.contains("pub count: Option<i32>,")); // nullable Int
@@ -241,12 +298,12 @@ mod tests {
         assert!(out.contains("async fn transfers("));
         assert!(out.contains("async fn transfers_count("));
         // limit clamp + parameterized query.
-        assert!(out.contains(".clamp(1, 200)"));
-        assert!(out.contains("ORDER BY \"id\" DESC LIMIT $1"));
+        assert!(out.contains("filters: Option<Vec<EntityFilter>>"));
+        assert!(out.contains("after: Option<String>"));
         // The SQL must be a raw literal — it embeds double-quoted identifiers, so a
         // plain "…" literal would not compile. (Same bug class as the upsert gen.)
         assert!(
-            out.contains("sqlx::query(r#\"SELECT"),
+            out.contains("query_entities(pool,"),
             "query SQL must be a raw string literal, got:\n{out}"
         );
     }

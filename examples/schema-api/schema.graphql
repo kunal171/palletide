@@ -1,0 +1,20 @@
+type Account @entity {
+  id: ID!
+  name: String! @index
+  type: String
+  balance: BigInt!
+  transfers: [Transfer!]! @derivedFrom(field: "owner")
+  featured: Transfer @derivedFrom(field: "featuredBy")
+}
+type Transfer @entity {
+  id: ID!
+  owner: Account! @index
+  featuredBy: Account @unique
+  amount: BigInt! @index
+  score: Int @index
+  tags: [String!]!
+  amounts: [BigInt!]!
+  meta: JSON
+}
+
+type Value @entity { id: ID! label: String }

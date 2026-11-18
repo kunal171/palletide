@@ -1,0 +1,195 @@
+{
+  "entities": [
+    {
+      "name": "Account",
+      "table": "accounts",
+      "fields": [
+        {
+          "name": "id",
+          "column": "id",
+          "ty": {
+            "Scalar": "Id"
+          },
+          "nullable": false,
+          "indexed": false,
+          "unique": false,
+          "is_id": true
+        },
+        {
+          "name": "name",
+          "column": "name",
+          "ty": {
+            "Scalar": "String"
+          },
+          "nullable": false,
+          "indexed": true,
+          "unique": false,
+          "is_id": false
+        },
+        {
+          "name": "type",
+          "column": "type",
+          "ty": {
+            "Scalar": "String"
+          },
+          "nullable": true,
+          "indexed": false,
+          "unique": false,
+          "is_id": false
+        },
+        {
+          "name": "balance",
+          "column": "balance",
+          "ty": {
+            "Scalar": "BigInt"
+          },
+          "nullable": false,
+          "indexed": false,
+          "unique": false,
+          "is_id": false
+        }
+      ],
+      "derived": [
+        {
+          "name": "transfers",
+          "target": "Transfer",
+          "field": "owner",
+          "many": true,
+          "nullable": false
+        },
+        {
+          "name": "featured",
+          "target": "Transfer",
+          "field": "featuredBy",
+          "many": false,
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "Transfer",
+      "table": "transfers",
+      "fields": [
+        {
+          "name": "id",
+          "column": "id",
+          "ty": {
+            "Scalar": "Id"
+          },
+          "nullable": false,
+          "indexed": false,
+          "unique": false,
+          "is_id": true
+        },
+        {
+          "name": "owner",
+          "column": "owner",
+          "ty": {
+            "Relation": "Account"
+          },
+          "nullable": false,
+          "indexed": true,
+          "unique": false,
+          "is_id": false
+        },
+        {
+          "name": "featuredBy",
+          "column": "featured_by",
+          "ty": {
+            "Relation": "Account"
+          },
+          "nullable": true,
+          "indexed": false,
+          "unique": true,
+          "is_id": false
+        },
+        {
+          "name": "amount",
+          "column": "amount",
+          "ty": {
+            "Scalar": "BigInt"
+          },
+          "nullable": false,
+          "indexed": true,
+          "unique": false,
+          "is_id": false
+        },
+        {
+          "name": "score",
+          "column": "score",
+          "ty": {
+            "Scalar": "Int"
+          },
+          "nullable": true,
+          "indexed": true,
+          "unique": false,
+          "is_id": false
+        },
+        {
+          "name": "tags",
+          "column": "tags",
+          "ty": {
+            "ScalarList": "String"
+          },
+          "nullable": false,
+          "indexed": false,
+          "unique": false,
+          "is_id": false
+        },
+        {
+          "name": "amounts",
+          "column": "amounts",
+          "ty": {
+            "ScalarList": "BigInt"
+          },
+          "nullable": false,
+          "indexed": false,
+          "unique": false,
+          "is_id": false
+        },
+        {
+          "name": "meta",
+          "column": "meta",
+          "ty": {
+            "Scalar": "Json"
+          },
+          "nullable": true,
+          "indexed": false,
+          "unique": false,
+          "is_id": false
+        }
+      ],
+      "derived": []
+    },
+    {
+      "name": "Value",
+      "table": "values",
+      "fields": [
+        {
+          "name": "id",
+          "column": "id",
+          "ty": {
+            "Scalar": "Id"
+          },
+          "nullable": false,
+          "indexed": false,
+          "unique": false,
+          "is_id": true
+        },
+        {
+          "name": "label",
+          "column": "label",
+          "ty": {
+            "Scalar": "String"
+          },
+          "nullable": true,
+          "indexed": false,
+          "unique": false,
+          "is_id": false
+        }
+      ],
+      "derived": []
+    }
+  ],
+  "enums": []
+}

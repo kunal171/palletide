@@ -87,7 +87,9 @@ fn generates_compilable_looking_rust_and_valid_looking_sql() {
     assert!(gql.contains("\"meta\"::text AS \"meta\""));
     assert!(gql.contains("query_entities(pool,"));
     // Root merges every entity query + the framework status query.
-    assert!(gql.contains("pub struct QueryRoot(TransferQuery, AccountQuery, StatusQuery);"));
+    assert!(
+        gql.contains("pub struct QueryRoot(TransferQuery, AccountQuery, PalletideStatusQuery);")
+    );
 
     // Deterministic: regenerating the same schema is byte-identical.
     let g2 = palletide_codegen::generate(&schema);

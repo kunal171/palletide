@@ -279,7 +279,8 @@ pub fn parse_schema(source: &str) -> Result<Schema, ParseError> {
     let schema = Schema { entities, enums };
     let mut generated_types = std::collections::HashSet::from([
         "QueryRoot".to_string(),
-        "StatusQuery".to_string(),
+        "PalletideStatusQuery".to_string(),
+        "IndexerStatus".to_string(),
         "QueryColumn".to_string(),
         "EntityFilter".to_string(),
     ]);

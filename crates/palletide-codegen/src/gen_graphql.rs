@@ -38,7 +38,7 @@ pub const GENERATED_HEADER: &str = "\
 /// Render the whole `graphql.rs` for a schema.
 pub fn render(schema: &Schema) -> String {
     let mut out = String::from(GENERATED_HEADER);
-    out.push_str("\n#![allow(dead_code, clippy::too_many_arguments)]\nuse async_graphql::{Context, MergedObject, Object, SimpleObject, ComplexObject};\nuse sqlx::{PgPool, Row};\nuse palletide_graphql::{StatusQuery, QueryColumn, EntityFilter, query_entities, encode_cursor};\n");
+    out.push_str("\n#![allow(dead_code, clippy::too_many_arguments)]\nuse async_graphql::{Context, MergedObject, Object, SimpleObject, ComplexObject};\nuse sqlx::{PgPool, Row};\nuse palletide_graphql::{StatusQuery as PalletideStatusQuery, QueryColumn, EntityFilter, query_entities, encode_cursor};\n");
     for entity in &schema.entities {
         out.push_str(&render_read_model(entity));
         out.push_str(&render_query(entity));
@@ -257,7 +257,7 @@ fn render_root(schema: &Schema) -> String {
         .entities
         .iter()
         .map(|e| format!("{}Query", e.name))
-        .chain(std::iter::once("StatusQuery".to_string()))
+        .chain(std::iter::once("PalletideStatusQuery".to_string()))
         .collect::<Vec<_>>()
         .join(", ");
     format!(
@@ -329,6 +329,6 @@ mod tests {
     fn root_merges_all_entities_plus_status() {
         let out = gen("type A @entity { id: ID! } type B @entity { id: ID! }");
         assert!(out.contains("#[derive(MergedObject, Default)]"));
-        assert!(out.contains("pub struct QueryRoot(AQuery, BQuery, StatusQuery);"));
+        assert!(out.contains("pub struct QueryRoot(AQuery, BQuery, PalletideStatusQuery);"));
     }
 }

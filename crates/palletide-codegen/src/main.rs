@@ -77,7 +77,7 @@ USAGE:
         Parse and validate a schema, printing the tables, columns and indexes
         that will be generated. Does not write anything.
 
-    palletide-codegen generate <schema.graphql | schema-dir> [--out <dir>]
+    palletide-codegen generate <schema.graphql | schema-dir> [--out <dir>] [--baseline <applied-schema>]
         Generate `entities.rs` (Rust structs + typed upserts), a
         `migrations/NNNN_schema.sql` migration, and `graphql.rs` (async-graphql
         read models + resolvers) into <dir> (default: ./generated). Files carry a
@@ -157,26 +157,119 @@ fn generate(schema_path: &Path, out: &Path) -> ExitCode {
         return ExitCode::FAILURE;
     };
     let g = palletide_codegen::generate(&schema);
-
+    let snapshot = out.join(".palletide-schema.json");
     let migrations = out.join("migrations");
-    if let Err(e) = std::fs::create_dir_all(&migrations) {
-        eprintln!("error: creating `{}`: {e}", migrations.display());
+    let args: Vec<String> = std::env::args().collect();
+    let previous: Option<palletide_codegen::Schema> = if let Some(i) =
+        args.iter().position(|s| s == "--baseline")
+    {
+        let Some(path) = args.get(i + 1) else {
+            eprintln!("error: --baseline requires the previously applied schema");
+            return ExitCode::FAILURE;
+        };
+        let Some(old) = load(Path::new(path)) else {
+            return ExitCode::FAILURE;
+        };
+        Some(old)
+    } else if snapshot.exists() {
+        match std::fs::read_to_string(&snapshot)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+        {
+            Some(value) => Some(value),
+            None => {
+                eprintln!("error: invalid schema snapshot; restore it or provide --baseline");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else if migrations.join("0001_schema.sql").exists() {
+        if std::fs::read_to_string(migrations.join("0001_schema.sql"))
+            .ok()
+            .as_deref()
+            == Some(g.migration_sql.as_str())
+        {
+            Some(schema.clone())
+        } else {
+            eprintln!("error: existing migrations have no snapshot; pass --baseline <previous-schema.graphql>");
+            return ExitCode::FAILURE;
+        }
+    } else {
+        None
+    };
+    let planned = match previous
+        .as_ref()
+        .map(|old| palletide_codegen::migration::plan(old, &schema))
+        .transpose()
+    {
+        Ok(Some(sql)) => sql,
+        Ok(None) => Some(g.migration_sql.clone()),
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(error) = std::fs::create_dir_all(&migrations) {
+        eprintln!("error: {error}");
         return ExitCode::FAILURE;
     }
-
     let entities_path = out.join("entities.rs");
-    let migration_path = migrations.join(&g.migration_name);
     let graphql_path = out.join("graphql.rs");
-    if let Err(e) = std::fs::write(&entities_path, &g.entities_rs) {
-        eprintln!("error: writing `{}`: {e}", entities_path.display());
-        return ExitCode::FAILURE;
+    let mut migration_path = migrations.join("(unchanged)");
+    if let Some(sql) = planned {
+        let entries = match std::fs::read_dir(&migrations) {
+            Ok(entries) => entries,
+            Err(error) => {
+                eprintln!("error reading migrations: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let entries: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+        let existing = entries
+            .iter()
+            .find(|p| std::fs::read_to_string(p).ok().as_deref() == Some(sql.as_str()));
+        if let Some(path) = existing {
+            migration_path = path.clone();
+        } else {
+            let version = entries
+                .iter()
+                .filter_map(|p| {
+                    p.file_name()?
+                        .to_str()?
+                        .split('_')
+                        .next()?
+                        .parse::<u64>()
+                        .ok()
+                })
+                .max()
+                .unwrap_or(0)
+                + 1;
+            migration_path = migrations.join(format!("{version:04}_schema.sql"));
+            use std::io::Write;
+            let written = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&migration_path)
+                .and_then(|mut f| f.write_all(sql.as_bytes()));
+            if let Err(error) = written {
+                eprintln!("error writing migration: {error}");
+                return ExitCode::FAILURE;
+            }
+        }
     }
-    if let Err(e) = std::fs::write(&migration_path, &g.migration_sql) {
-        eprintln!("error: writing `{}`: {e}", migration_path.display());
-        return ExitCode::FAILURE;
+    for (path, contents) in [
+        (&entities_path, &g.entities_rs),
+        (&graphql_path, &g.graphql_rs),
+    ] {
+        if let Err(error) = std::fs::write(path, contents) {
+            eprintln!("error: {error}");
+            return ExitCode::FAILURE;
+        }
     }
-    if let Err(e) = std::fs::write(&graphql_path, &g.graphql_rs) {
-        eprintln!("error: writing `{}`: {e}", graphql_path.display());
+    let temporary = out.join(".palletide-schema.json.tmp");
+    if let Err(error) = std::fs::write(&temporary, serde_json::to_vec_pretty(&schema).unwrap())
+        .and_then(|_| std::fs::rename(&temporary, &snapshot))
+    {
+        eprintln!("error writing schema snapshot: {error}");
         return ExitCode::FAILURE;
     }
 

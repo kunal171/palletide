@@ -26,8 +26,19 @@ impl PortalClient {
     /// Build a client for `portal_url` + `dataset`. `portal_url` is the portal
     /// base (e.g. `https://portal.sqd.dev`); the dataset is appended as
     /// `/datasets/{dataset}/stream`.
+    #[cfg(test)]
     pub(crate) fn new(portal_url: &str, dataset: &str) -> Result<Self> {
+        Self::with_timeout(portal_url, dataset, std::time::Duration::from_secs(30))
+    }
+
+    pub(crate) fn with_timeout(
+        portal_url: &str,
+        dataset: &str,
+        timeout: std::time::Duration,
+    ) -> Result<Self> {
         let http = Client::builder()
+            .timeout(timeout)
+            .connect_timeout(timeout)
             .build()
             .map_err(|e| PalletideError::Source(format!("build http client: {e}")))?;
         let base = portal_url.trim_end_matches('/');
@@ -226,5 +237,25 @@ mod tests {
             c.stream_url,
             "https://portal.sqd.dev/datasets/kusama/stream"
         );
+    }
+
+    #[tokio::test]
+    async fn portal_request_timeout_is_enforced() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (_connection, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        });
+        let client = PortalClient::with_timeout(
+            &format!("http://{address}"),
+            "test",
+            std::time::Duration::from_millis(30),
+        )
+        .unwrap();
+        let result =
+            tokio::time::timeout(std::time::Duration::from_secs(2), client.finalized_head()).await;
+        assert!(result.unwrap().is_err());
+        server.abort();
     }
 }

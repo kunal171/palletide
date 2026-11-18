@@ -11,7 +11,8 @@
 //! portal + RPC — so it's reusable and unit-testable with mock sources.
 //!
 //! Delegation:
-//! - [`fetch_batch`](DataSource::fetch_batch) → **backfill** source `B`.
+//! - [`fetch_batch`](DataSource::fetch_batch) → backfill source `B` within its
+//!   available range, with tip-source fallback for newer or unavailable history.
 //! - [`next_finalized`](DataSource::next_finalized) → **tip** source `T`.
 //! - [`finalized_head`](DataSource::finalized_head) → the **max** of both heads,
 //!   so the engine backfills all the way to the true tip before switching to
@@ -61,14 +62,31 @@ where
     /// reaches this, so the engine catches all the way up before following — even
     /// if one source momentarily lags the other.
     async fn finalized_head(&self) -> Result<BlockNumber> {
-        let b = self.backfill.finalized_head().await?;
-        let t = self.tip.finalized_head().await?;
-        Ok(b.max(t))
+        match (
+            self.backfill.finalized_head().await,
+            self.tip.finalized_head().await,
+        ) {
+            (Ok(b), Ok(t)) => Ok(b.max(t)),
+            (Ok(head), Err(_)) | (Err(_), Ok(head)) => Ok(head),
+            (Err(b), Err(t)) => Err(palletide_core::PalletideError::Source(format!(
+                "both hybrid sources unavailable: {b}; {t}"
+            ))),
+        }
     }
 
-    /// Backfill history from the fast source.
+    /// Use the fast source within its range, otherwise fetch from the tip source.
     async fn fetch_batch(&self, from: BlockNumber, to: BlockNumber) -> Result<BlockBatch> {
-        self.backfill.fetch_batch(from, to).await
+        let head = match self.backfill.finalized_head().await {
+            Ok(head) => head,
+            Err(_) => return self.tip.fetch_batch(from, to).await,
+        };
+        if from > head {
+            return self.tip.fetch_batch(from, to).await;
+        }
+        match self.backfill.fetch_batch(from, to.min(head)).await {
+            Ok(batch) if !batch.is_empty() => Ok(batch),
+            _ => self.tip.fetch_batch(from, to).await,
+        }
     }
 
     /// Follow the live tip from the tip source (the backfill source may not
@@ -202,5 +220,39 @@ mod tests {
     fn name_is_hybrid() {
         let h = HybridSource::new(MockSource::backfill(1), MockSource::tip(1, vec![]));
         assert_eq!(h.name(), "hybrid");
+    }
+
+    #[tokio::test]
+    async fn lagging_portal_ranges_switch_to_rpc_without_skipping_heights() {
+        let source = HybridSource::new(MockSource::backfill(5), MockSource::tip(8, vec![]));
+        let historical = source.fetch_batch(4, 8).await.unwrap();
+        assert_eq!(historical.last().unwrap().id.number, 5);
+        let recent = source.fetch_batch(6, 8).await.unwrap();
+        assert_eq!(recent.first().unwrap().id.number, 6);
+        assert!(recent.first().unwrap().id.hash.starts_with("T-"));
+    }
+
+    #[tokio::test]
+    async fn offline_portal_does_not_prevent_rpc_backfill() {
+        struct Offline;
+        #[async_trait]
+        impl DataSource for Offline {
+            async fn finalized_head(&self) -> Result<u32> {
+                Err(PalletideError::Source("offline".into()))
+            }
+            async fn fetch_batch(&self, _: u32, _: u32) -> Result<BlockBatch> {
+                Err(PalletideError::Source("offline".into()))
+            }
+            async fn next_finalized(&self) -> Result<BlockBatch> {
+                Err(PalletideError::Source("offline".into()))
+            }
+            fn name(&self) -> &str {
+                "offline"
+            }
+        }
+        let source = HybridSource::new(Offline, MockSource::tip(8, vec![]));
+        assert_eq!(source.finalized_head().await.unwrap(), 8);
+        let batch = source.fetch_batch(4, 8).await.unwrap();
+        assert_eq!(batch.first().unwrap().id.hash, "T-4");
     }
 }

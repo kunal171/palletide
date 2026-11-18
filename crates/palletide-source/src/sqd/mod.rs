@@ -25,6 +25,8 @@ use palletide_core::{BlockBatch, BlockNumber, DataSource, PalletideError, Result
 pub struct SqdConfig {
     /// Portal base URL, e.g. `https://portal.sqd.dev`.
     pub portal_url: String,
+    /// HTTP request timeout.
+    pub request_timeout: std::time::Duration,
     /// Dataset name, e.g. `polkadot`, `kusama`, `moonbeam`.
     pub dataset: String,
     /// Maximum number of blocks requested per `fetch_batch` call.
@@ -47,6 +49,7 @@ impl SqdConfig {
     pub fn new(portal_url: impl Into<String>, dataset: impl Into<String>) -> Self {
         Self {
             portal_url: portal_url.into(),
+            request_timeout: std::time::Duration::from_secs(30),
             dataset: dataset.into(),
             batch_size: 1000,
             selection: DataSelection::default(),
@@ -58,6 +61,12 @@ impl SqdConfig {
     /// Override which block data to request (e.g. [`DataSelection::events_only`]).
     pub fn with_selection(mut self, selection: DataSelection) -> Self {
         self.selection = selection;
+        self
+    }
+
+    /// Set a bounded timeout for portal requests.
+    pub fn with_request_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.request_timeout = timeout.max(std::time::Duration::from_millis(1));
         self
     }
 
@@ -91,7 +100,16 @@ pub struct SqdPortalSource {
 impl SqdPortalSource {
     /// Connect to the portal dataset in `config`.
     pub fn connect(config: SqdConfig) -> Result<Self> {
-        let client = PortalClient::new(&config.portal_url, &config.dataset)?;
+        if config.ss58_prefix > 16383 || matches!(config.ss58_prefix, 46 | 47) {
+            return Err(PalletideError::Source(
+                "invalid or reserved SS58 prefix".into(),
+            ));
+        }
+        let client = PortalClient::with_timeout(
+            &config.portal_url,
+            &config.dataset,
+            config.request_timeout,
+        )?;
         Ok(Self { client, config })
     }
 }

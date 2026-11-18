@@ -84,6 +84,8 @@ pub enum ConfigError {
 #[serde(default, deny_unknown_fields)]
 pub struct SourceSection {
     pub url: Option<String>,
+    pub fallback_urls: Option<Vec<String>>,
+    pub request_timeout_ms: Option<u64>,
     pub batch_size: Option<u32>,
     pub concurrency: Option<usize>,
     pub ss58_prefix: Option<u16>,
@@ -161,6 +163,21 @@ impl IndexerConfig {
         if let Some(v) = env("WS_URL") {
             self.source.url = Some(v);
         }
+        if let Some(v) = env("RPC_URLS") {
+            self.source.fallback_urls = Some(
+                v.split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect(),
+            );
+        }
+        set_opt(
+            &mut self.source.request_timeout_ms,
+            env,
+            "REQUEST_TIMEOUT_MS",
+            "u64",
+        )?;
         if let Some(v) = env("DATABASE_URL") {
             self.store.url = Some(v);
         }
@@ -231,6 +248,12 @@ impl IndexerConfig {
     /// URL is missing (it isn't, via [`load`](Self::load)).
     pub fn source_config(&self) -> SourceConfig {
         let mut c = SourceConfig::new(self.source.url.clone().expect("validated: source.url"));
+        if let Some(v) = &self.source.fallback_urls {
+            c = c.with_fallback_urls(v.clone());
+        }
+        if let Some(v) = self.source.request_timeout_ms {
+            c = c.with_request_timeout(std::time::Duration::from_millis(v));
+        }
         if let Some(v) = self.source.batch_size {
             c = c.with_batch_size(v);
         }

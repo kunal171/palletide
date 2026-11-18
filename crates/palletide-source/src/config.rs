@@ -105,6 +105,10 @@ impl DataSelection {
 pub struct SourceConfig {
     /// WebSocket RPC endpoint of the chain, e.g. `wss://your-substrate-node:9944`.
     pub url: String,
+    /// Additional RPC endpoints on the same chain, tried on connection/fetch failure.
+    pub fallback_urls: Vec<String>,
+    /// Timeout for connection and RPC operations.
+    pub request_timeout: Duration,
     /// Maximum number of blocks [`fetch_batch`](palletide_core::DataSource::fetch_batch)
     /// returns per call.
     ///
@@ -148,6 +152,8 @@ impl SourceConfig {
     pub fn new(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
+            fallback_urls: Vec::new(),
+            request_timeout: Duration::from_secs(30),
             batch_size: 100,
             concurrency: 16,
             selection: DataSelection::default(),
@@ -155,6 +161,18 @@ impl SourceConfig {
             ss58_prefix: 42,
             strict: false,
         }
+    }
+
+    /// Configure fallback endpoints (all must report the same genesis hash).
+    pub fn with_fallback_urls(mut self, urls: Vec<String>) -> Self {
+        self.fallback_urls = urls;
+        self
+    }
+
+    /// Set the timeout for network operations (minimum one millisecond).
+    pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
+        self.request_timeout = timeout.max(Duration::from_millis(1));
+        self
     }
 
     /// Override which block data to fetch (e.g. [`DataSelection::events_only`]).

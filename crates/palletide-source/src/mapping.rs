@@ -8,10 +8,11 @@
 
 use crate::config::DataSelection;
 use crate::ss58;
-use crate::ChainConfig;
+use crate::ParentHashHeader;
 use palletide_core::{Block, BlockId, Event, Extrinsic, PalletideError};
 use subxt::client::{ClientAtBlock, OnlineClientAtBlockT};
 use subxt::events::Phase;
+use subxt::Config;
 
 /// A dynamically-decoded scale value. `scale_value::Value` defaults to context
 /// `()`, which is the type that implements `DecodeAsFields` — the bound subxt's
@@ -61,19 +62,20 @@ fn on_decode_failure(
 
 /// Build our [`Block`] from a subxt client positioned at a block.
 ///
-/// Concrete to [`ChainConfig`] (subxt's `PolkadotConfig`) so we can read the
+/// Concrete to [`crate::ChainConfig`] (subxt's `PolkadotConfig`) so we can read the
 /// concrete `SubstrateHeader::parent_hash` field — the generic `Header` trait
 /// does not expose a parent hash. `finalized` is supplied by the caller (the
 /// source knows whether this height is at/below the finalized head).
-pub async fn map_block<C>(
-    at: &ClientAtBlock<ChainConfig, C>,
+pub async fn map_block<T: Config, C>(
+    at: &ClientAtBlock<T, C>,
     finalized: bool,
     selection: DataSelection,
     ss58_prefix: u16,
     strict: bool,
 ) -> Result<Block, PalletideError>
 where
-    C: OnlineClientAtBlockT<ChainConfig>,
+    C: OnlineClientAtBlockT<T>,
+    T::Header: ParentHashHeader,
 {
     let number = at.block_number() as u32;
     let hash = format!("0x{}", hex::encode(at.block_hash().as_ref()));
@@ -85,7 +87,7 @@ where
             .map_err(|e| PalletideError::Source(format!("fetch header: {e}")))?;
         // `ChainConfig::Header` is `SubstrateHeader<H256>`, which exposes
         // `parent_hash` directly.
-        format!("0x{}", hex::encode(header.parent_hash.as_ref()))
+        format!("0x{}", hex::encode(header.parent_hash_bytes()))
     };
     let spec_version = at.spec_version();
 
@@ -121,15 +123,16 @@ where
 /// Decode all extrinsics in the block into [`Extrinsic`]s, tagging each with its
 /// dispatch success from the pre-built `success` map (derived from the block's
 /// `System.ExtrinsicSuccess/Failed` events).
-async fn map_extrinsics<C>(
-    at: &ClientAtBlock<ChainConfig, C>,
+async fn map_extrinsics<T: Config, C>(
+    at: &ClientAtBlock<T, C>,
     success: &std::collections::HashMap<u32, bool>,
     ss58_prefix: u16,
     height: u32,
     strict: bool,
 ) -> Result<Vec<Extrinsic>, PalletideError>
 where
-    C: OnlineClientAtBlockT<ChainConfig>,
+    C: OnlineClientAtBlockT<T>,
+    T::Header: ParentHashHeader,
 {
     let exts = at
         .extrinsics()
@@ -182,13 +185,14 @@ where
 /// Fetch the block's events ONCE, returning both the decoded [`Event`] list and
 /// an `extrinsic_index -> success` map (from `System.ExtrinsicSuccess/Failed`),
 /// so callers don't fetch events twice.
-async fn map_events<C>(
-    at: &ClientAtBlock<ChainConfig, C>,
+async fn map_events<T: Config, C>(
+    at: &ClientAtBlock<T, C>,
     height: u32,
     strict: bool,
 ) -> Result<(Vec<Event>, std::collections::HashMap<u32, bool>), PalletideError>
 where
-    C: OnlineClientAtBlockT<ChainConfig>,
+    C: OnlineClientAtBlockT<T>,
+    T::Header: ParentHashHeader,
 {
     let events = at
         .events()

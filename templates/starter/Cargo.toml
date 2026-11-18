@@ -17,6 +17,8 @@ palletide-graphql = { git = "https://github.com/kunal171/palletide" }
 palletide-config = { git = "https://github.com/kunal171/palletide" }
 
 async-graphql = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres"] }

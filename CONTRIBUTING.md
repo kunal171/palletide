@@ -142,3 +142,15 @@ reproduction (chain endpoint / block range / query if relevant).
 
 By contributing, you agree your contributions are licensed under the project's
 [Apache-2.0](https://github.com/kunal171/palletide/blob/main/LICENSE) license.
+
+### Stable release publishing
+
+Push a `vX.Y.Z` tag only after the PR is merged and CI passes. The release
+workflow builds Linux CLI and example indexer archives with SHA-256 checksums.
+Crates.io publishing is opt-in: set the repository variable `PUBLISH_CRATES=true`
+and configure `CARGO_REGISTRY_TOKEN` before tagging if registry publication is
+wanted. GitHub releases can be built without registry credentials.
+
+The repository pins Rust in `rust-toolchain.toml`; use the same version locally,
+in Docker, and in CI. Database-only processor reorg tests run with
+`cargo test -p palletide --test reorg_pg -- --ignored` and `PALLETIDE_TEST_DB` set.

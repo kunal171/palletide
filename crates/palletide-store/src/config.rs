@@ -10,7 +10,7 @@ pub struct StoreConfig {
     /// [`StoreConfig::new`].
     pub max_connections: u32,
     /// How many recent block rows to retain in the `palletide_block` bookkeeping
-    /// table for reorg detection. On each commit, rows more than this many blocks
+    /// table and entity undo journal for reorg detection and restoration. On each commit, rows more than this many blocks
     /// below the cursor are pruned — they're never read again (reorg checks only
     /// look back a bounded window, and palletide indexes finalized blocks). This
     /// keeps the table bounded on a multi-million-block chain instead of growing

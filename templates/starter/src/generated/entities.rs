@@ -5,6 +5,12 @@
 
 #![allow(dead_code)]
 
+/// Register all generated tables for reorg rollback after applying migrations.
+pub async fn register_entities(store: &palletide_store::PgStore) -> palletide::Result<()> {
+    store.track_table("transfers").await?;
+    Ok(())
+}
+
 /// `Transfer` — maps to the `transfers` table.
 #[derive(Debug, Clone)]
 pub struct Transfer {
@@ -19,7 +25,7 @@ pub struct Transfer {
 impl Transfer {
     /// Insert this row, or update it if a row with the same `id` already
     /// exists (upsert on the primary key). Pass a transaction
-    /// (`&mut **tx`) to commit with the indexer cursor, or the pool.
+    /// (`&mut **tx`) to commit with the indexer cursor. Tracked tables require block context.
     pub async fn upsert<'e, E>(&self, executor: E) -> Result<(), sqlx::Error>
     where
         E: sqlx::PgExecutor<'e>,

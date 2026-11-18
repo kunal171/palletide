@@ -44,8 +44,8 @@ and the indexer keeps "working" while writing wrong data. palletide avoids this 
   GraphQL API for you.
 
 Progress survives restarts, and each batch's handler writes commit atomically
-with the cursor. Reorg detection rewinds framework progress; automatic handler
-entity rollback is not yet implemented. See [reorg limitations](./reorgs.md).
+with the cursor. Registered PostgreSQL entity tables restore inserts, updates,
+and deletes on a reorg. See [registration and limits](./reorgs.md).
 
 ## Where to go from here
 

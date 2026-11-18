@@ -6,9 +6,9 @@
 //! cursor and the reorg rollback — and hands handlers a `sqlx` transaction so
 //! their entity writes commit atomically with the cursor advance.
 //!
-//! Implemented incrementally on the `feat/store-postgres` branch: this commit
-//! adds the crate scaffold and connection config; the schema, read paths,
-//! transaction lifecycle, and reorg rollback follow.
+//! Register application tables with [`PgStore::track_table`] after their
+//! migrations. Row triggers retain before-images so a reorg restores inserts,
+//! updates and deletes atomically with the framework cursor.
 
 mod config;
 mod schema;

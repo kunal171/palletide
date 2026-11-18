@@ -104,7 +104,7 @@ fn render_upsert(e: &Entity) -> String {
     s.push_str(
         "    /// Insert this row, or update it if a row with the same `id` already\n\
          \x20   /// exists (upsert on the primary key). Pass a transaction\n\
-         \x20   /// (`&mut **tx`) to commit with the indexer cursor, or the pool.\n",
+         \x20   /// (`&mut **tx`) to commit with the indexer cursor. Tracked tables require block context.\n",
     );
     s.push_str("    pub async fn upsert<'e, E>(&self, executor: E) -> Result<(), sqlx::Error>\n");
     s.push_str("    where\n");

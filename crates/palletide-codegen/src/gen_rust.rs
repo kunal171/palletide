@@ -6,7 +6,8 @@
 //!
 //! The output is a single `entities.rs` a builder commits and imports. It derives
 //! `Debug` + `Clone` and nothing DB-specific — the *upsert* helpers (a later PR)
-//! add the persistence, keeping this file a plain data model.
+//! add persistence. The generated `register_entities` helper registers the
+//! schema's tables with `PgStore` for durable reorg rollback.
 
 use crate::model::{Entity, EnumDef, FieldType, Schema};
 
@@ -24,6 +25,18 @@ pub fn render(schema: &Schema) -> String {
     out.push_str(GENERATED_HEADER);
     out.push('\n');
     out.push_str("#![allow(dead_code)]\n\n");
+
+    out.push_str(
+        "/// Register all generated tables for reorg rollback after applying migrations.\n",
+    );
+    out.push_str("pub async fn register_entities(store: &palletide_store::PgStore) -> palletide::Result<()> {\n");
+    for entity in &schema.entities {
+        out.push_str(&format!(
+            "    store.track_table(\"{}\").await?;\n",
+            entity.table
+        ));
+    }
+    out.push_str("    Ok(())\n}\n\n");
 
     // `serde_json::Value` is only referenced if some field is JSON — but importing
     // it unconditionally would warn when unused, so we qualify at the use site

@@ -2910,7 +2910,7 @@ checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
 
 [[package]]
 name = "palletide"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -2928,7 +2928,7 @@ dependencies = [
 
 [[package]]
 name = "palletide-codegen"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-graphql-parser",
  "thiserror 2.0.21",
@@ -2936,7 +2936,7 @@ dependencies = [
 
 [[package]]
 name = "palletide-config"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "dotenvy",
  "palletide",
@@ -2949,7 +2949,7 @@ dependencies = [
 
 [[package]]
 name = "palletide-core"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "hex",
@@ -2961,7 +2961,7 @@ dependencies = [
 
 [[package]]
 name = "palletide-example-multi-pallet"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -2981,7 +2981,7 @@ dependencies = [
 
 [[package]]
 name = "palletide-example-transfers"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -3001,7 +3001,7 @@ dependencies = [
 
 [[package]]
 name = "palletide-graphql"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-graphql",
  "async-graphql-axum",
@@ -3017,7 +3017,7 @@ dependencies = [
 
 [[package]]
 name = "palletide-source"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base58",
@@ -3037,7 +3037,7 @@ dependencies = [
 
 [[package]]
 name = "palletide-store"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "palletide-core",

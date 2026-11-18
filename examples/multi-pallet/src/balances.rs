@@ -29,6 +29,7 @@ impl Handler<PgStore> for BalancesHandler {
         .execute(store.pool())
         .await
         .map_err(|e| PalletideError::Handler(format!("create balance_transfers: {e}")))?;
+        store.track_table("balance_transfers").await?;
         Ok(())
     }
 

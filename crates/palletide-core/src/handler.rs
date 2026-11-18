@@ -43,9 +43,11 @@ pub trait Prepared<S: Store>: Send {
 ///   bulk-write once (avoids the per-row-upsert anti-pattern).
 ///
 /// All writes in a batch share one transaction and commit atomically with the
-/// cursor advance; returning `Err` rolls the whole batch back. Any write a
-/// handler makes should be tagged with the block height (a `_block` column
-/// convention) so reorgs can roll it back.
+/// cursor advance; returning `Err` rolls the whole batch back. With PostgreSQL,
+/// register application tables using `PgStore::track_table` during `init` to
+/// restore inserts, updates and deletes on reorgs. Tracked stores receive
+/// singleton batches so writes can be attributed to their exact block; the
+/// fetched batch still commits in one transaction.
 #[async_trait]
 pub trait Handler<S: Store>: Send + Sync {
     /// Optional one-time setup (e.g. create the handler's own tables). Called

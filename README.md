@@ -67,8 +67,8 @@ RPC / SQD portal → decoded blocks → your handlers → PostgreSQL → GraphQL
 - Dynamic decoding uses metadata for each block's runtime version.
 - Handler writes and progress commit together in one transaction per batch.
 - RPC, SQD portal backfill, and hybrid sources share the same handler interface.
-- Reorg detection locates the fork and rewinds framework progress. Entity rollback
-  is not implemented yet; see [reorg limitations](https://kunal171.github.io/palletide/reorgs.html).
+- Registered application tables restore inserts, updates, and deletes atomically
+  on reorgs; see [table registration and limits](https://kunal171.github.io/palletide/reorgs.html).
 
 See the [transfers](examples/transfers/) and [multi-pallet](examples/multi-pallet/)
 examples for complete applications, or the [starter template](templates/starter/)
@@ -84,4 +84,4 @@ cargo test --workspace --all-features
 Database and live-chain integration tests are opt-in. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for setup and checks.
 
-Alpha software; APIs may change. Licensed under [Apache-2.0](LICENSE).
+Pre-1.0 software; APIs may change. Licensed under [Apache-2.0](LICENSE).

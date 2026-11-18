@@ -120,7 +120,8 @@ impl Handler<PgStore> for AssetsHandler {
     async fn init(&self, store: &PgStore) -> Result<()> {
         // Applied once, in order, tracked in `_sqlx_migrations_assets` — isolated
         // from the framework's own `_sqlx_migrations`.
-        store.run_handler_migrations(&MIGRATOR, self.name()).await
+        store.run_handler_migrations(&MIGRATOR, self.name()).await?;
+        store.track_table("asset_lifecycle").await
     }
 
     // Phase 1 — pure compute (no tx). The engine runs this concurrently with the

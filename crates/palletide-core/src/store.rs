@@ -42,6 +42,21 @@ pub trait Store: Send + Sync {
     /// Begin a transaction scoped to committing one block.
     async fn begin<'a>(&'a self) -> Result<Self::Tx<'a>>;
 
+    /// Whether handler writes need an exact block context. Such stores receive
+    /// singleton batches while retaining one transaction per fetched batch.
+    fn requires_block_context(&self) -> bool {
+        false
+    }
+
+    /// Associate subsequent handler writes with a block for durable undo.
+    async fn set_block_context<'a>(
+        &self,
+        _tx: &mut Self::Tx<'a>,
+        _height: BlockNumber,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     /// Within `tx`, advance the cursor to `block`, recording its hash AND the
     /// metadata needed for reorg detection (`parent_hash`) and observability
     /// (`timestamp`, `spec_version`). Handlers will have already written their
@@ -58,8 +73,8 @@ pub trait Store: Send + Sync {
 
     /// Roll back ALL indexed data strictly above `height` (handler entity rows
     /// and bookkeeping), atomically. Invoked on reorg before re-indexing the
-    /// corrected chain. Implementations rely on framework-managed `_block` columns
-    /// to know what to delete.
+    /// corrected chain. Backends must retain the history needed to restore
+    /// registered application tables, including updates and deletes.
     async fn rollback_to(&self, height: BlockNumber) -> Result<()>;
 
     /// Called once by the processor when backfill reaches the finalized head,

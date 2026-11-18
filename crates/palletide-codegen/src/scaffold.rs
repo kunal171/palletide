@@ -141,6 +141,7 @@ impl Handler<PgStore> for MyHandler {
         .execute(store.pool())
         .await
         .map_err(|e| PalletideError::Handler(format!("create events table: {e}")))?;
+        store.track_table("events").await?;
         Ok(())
     }
 
@@ -347,7 +348,8 @@ palletide-codegen generate schema.graphql --out src/generated
 
 This writes `entities.rs` (structs + typed upserts), a SQL migration, and
 `graphql.rs` (an async-graphql read API). Wire the migration into your handler's
-`init` and call the generated `.upsert(...)` from `process_block`.
+`init`, call `generated::entities::register_entities(store).await?` after the
+migration, and call the generated `.upsert(...)` from `process_block`.
 "#
     )
 }

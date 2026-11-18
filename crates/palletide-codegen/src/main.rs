@@ -17,6 +17,10 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("--version") | Some("-V") => {
+            println!("palletide-codegen {}", env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
+        }
         Some("check") => match args.get(2) {
             Some(path) => check(Path::new(path)),
             None => {

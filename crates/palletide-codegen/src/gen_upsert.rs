@@ -73,7 +73,18 @@ fn render_upsert(e: &Entity) -> String {
         if !f.is_id {
             updates.push(format!("{col} = EXCLUDED.{col}"));
         }
-        binds.push(format!("        .bind(&self.{})", f.column));
+        let borrow = if matches!(
+            f.ty,
+            FieldType::Scalar(Scalar::Int | Scalar::Float | Scalar::Boolean | Scalar::DateTime)
+        ) {
+            ""
+        } else {
+            "&"
+        };
+        binds.push(format!(
+            "        .bind({borrow}self.{})",
+            crate::model::rust_ident(&f.column)
+        ));
     }
 
     let id_col = e
@@ -94,13 +105,13 @@ fn render_upsert(e: &Entity) -> String {
 
     let sql = format!(
         "INSERT INTO {table} ({cols}) VALUES ({vals}) {conflict}",
-        table = e.table,
+        table = quote_ident(&e.table),
         cols = columns.join(", "),
         vals = placeholders.join(", "),
     );
 
     let mut s = String::new();
-    s.push_str(&format!("impl {} {{\n", e.name));
+    s.push_str(&format!("impl {} {{\n", crate::model::rust_ident(&e.name)));
     s.push_str(
         "    /// Insert this row, or update it if a row with the same `id` already\n\
          \x20   /// exists (upsert on the primary key). Pass a transaction\n\
@@ -124,6 +135,42 @@ fn render_upsert(e: &Entity) -> String {
     s.push_str("        .await?;\n");
     s.push_str("        Ok(())\n");
     s.push_str("    }\n");
+    s.push_str("    /// Bulk upsert rows from one block on the processor connection. IDs must be unique.\n");
+    s.push_str("    pub async fn upsert_many(rows: &[Self], connection: &mut sqlx::PgConnection) -> Result<(), sqlx::Error> {\n");
+    let id = crate::model::rust_ident(&e.id_field().unwrap().column);
+    s.push_str(&format!("        let mut ids = std::collections::HashSet::new();\n        for row in rows {{ if !ids.insert(&row.{id}) {{ return Err(sqlx::Error::Protocol(\"duplicate ID in bulk upsert\".into())); }} }}\n"));
+    s.push_str(&format!(
+        "        for chunk in rows.chunks({}) {{\n",
+        (65535 / e.fields.len()).min(1000)
+    ));
+    s.push_str(&format!("            let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(r#\"INSERT INTO {} ({}) \"#);\n", quote_ident(&e.table), columns.join(", ")));
+    s.push_str("            query.push_values(chunk, |mut record, row| {\n");
+    for field in &e.fields {
+        let borrow = if matches!(
+            field.ty,
+            FieldType::Scalar(Scalar::Int | Scalar::Float | Scalar::Boolean | Scalar::DateTime)
+        ) {
+            ""
+        } else {
+            "&"
+        };
+        s.push_str(&format!(
+            "                record.push_bind({borrow}row.{});\n",
+            crate::model::rust_ident(&field.column)
+        ));
+        match field.ty {
+            FieldType::Scalar(Scalar::BigInt) => {
+                s.push_str("                record.push_unseparated(\"::text::numeric\");\n")
+            }
+            FieldType::ScalarList(Scalar::BigInt) => {
+                s.push_str("                record.push_unseparated(\"::text[]::numeric[]\");\n")
+            }
+            _ => {}
+        }
+    }
+    s.push_str("            });\n");
+    s.push_str(&format!("            query.push(r#\" {conflict}\"#);\n"));
+    s.push_str("            query.build().execute(&mut *connection).await?;\n        }\n        Ok(())\n    }\n");
     s.push_str("}\n");
     s
 }
@@ -133,6 +180,7 @@ fn render_upsert(e: &Entity) -> String {
 fn placeholder(n: usize, ty: &FieldType) -> String {
     match ty {
         FieldType::Scalar(Scalar::BigInt) => format!("${n}::text::numeric"),
+        FieldType::ScalarList(Scalar::BigInt) => format!("${n}::text[]::numeric[]"),
         _ => format!("${n}"),
     }
 }
@@ -159,7 +207,7 @@ mod tests {
         assert!(out.contains("pub async fn upsert<'e, E>"));
         assert!(out.contains("E: sqlx::PgExecutor<'e>"));
         // All three columns inserted, quoted.
-        assert!(out.contains("INSERT INTO transfers (\"id\", \"amount\", \"note\")"));
+        assert!(out.contains("INSERT INTO \"transfers\" (\"id\", \"amount\", \"note\")"));
         // BigInt binds as text and casts to numeric; others are plain $n.
         assert!(
             out.contains("VALUES ($1, $2::text::numeric, $3)"),
@@ -184,7 +232,7 @@ mod tests {
         // (This exact bug shipped past the substring asserts once; guard it.)
         let out = gen("type Transfer @entity { id: ID! from: String! }");
         assert!(
-            out.contains("r#\"INSERT INTO transfers"),
+            out.contains("r#\"INSERT INTO \"transfers"),
             "SQL must be a raw string literal, got:\n{out}"
         );
         // No bare `"INSERT` (which would be a broken plain literal).
@@ -195,9 +243,8 @@ mod tests {
     fn id_only_entity_does_nothing_on_conflict() {
         // No non-id columns → an empty `DO UPDATE SET` would be a SQL error.
         let out = gen("type Tag @entity { id: ID! }");
-        assert!(
-            out.contains("INSERT INTO tags (\"id\") VALUES ($1) ON CONFLICT (\"id\") DO NOTHING")
-        );
+        assert!(out
+            .contains("INSERT INTO \"tags\" (\"id\") VALUES ($1) ON CONFLICT (\"id\") DO NOTHING"));
         assert!(!out.contains("DO UPDATE"));
     }
 

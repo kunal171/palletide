@@ -13,6 +13,9 @@ path = "src/main.rs"
 
 [dependencies]
 async-graphql-parser.workspace = true
+async-graphql-value = "7"
 thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]

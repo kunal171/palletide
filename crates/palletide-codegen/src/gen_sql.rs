@@ -28,7 +28,10 @@ pub fn render(schema: &Schema) -> String {
 
 fn render_table(e: &Entity) -> String {
     let mut s = String::new();
-    s.push_str(&format!("CREATE TABLE IF NOT EXISTS {} (\n", e.table));
+    s.push_str(&format!(
+        "CREATE TABLE IF NOT EXISTS {} (\n",
+        quote_ident(&e.table)
+    ));
 
     let col_lines: Vec<String> = e.fields.iter().map(column_def).collect();
     s.push_str(&col_lines.join(",\n"));
@@ -41,8 +44,9 @@ fn render_table(e: &Entity) -> String {
     for f in &e.fields {
         if f.indexed && !f.is_id && !f.unique {
             s.push_str(&format!(
-                "CREATE INDEX IF NOT EXISTS {table}_{col}_idx ON {table} ({colq});\n",
+                "CREATE INDEX IF NOT EXISTS {table}_{col}_idx ON {tableq} ({colq});\n",
                 table = e.table,
+                tableq = quote_ident(&e.table),
                 col = f.column,
                 colq = quote_ident(&f.column),
             ));
@@ -86,7 +90,7 @@ mod tests {
     fn creates_a_table_with_pk_notnull_and_types() {
         let sql =
             gen("type Transfer @entity { id: ID! amount: BigInt! note: String blockHeight: Int! }");
-        assert!(sql.contains("CREATE TABLE IF NOT EXISTS transfers ("));
+        assert!(sql.contains("CREATE TABLE IF NOT EXISTS \"transfers\" ("));
         assert!(sql.contains("\"id\" TEXT PRIMARY KEY"));
         assert!(sql.contains("\"amount\" NUMERIC NOT NULL"));
         // Nullable → no NOT NULL.
@@ -104,7 +108,7 @@ mod tests {
         assert!(sql.contains("\"handle\" TEXT UNIQUE"));
         // @index → a separate CREATE INDEX; the keyword column `from` is quoted.
         assert!(
-            sql.contains("CREATE INDEX IF NOT EXISTS accounts_from_idx ON accounts (\"from\")"),
+            sql.contains("CREATE INDEX IF NOT EXISTS accounts_from_idx ON \"accounts\" (\"from\")"),
             "got:\n{sql}"
         );
         // A UNIQUE column is already indexed → no explicit index for it.

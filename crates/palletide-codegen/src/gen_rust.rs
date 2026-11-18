@@ -74,7 +74,10 @@ fn render_entity(e: &Entity) -> String {
         e.name, e.table
     ));
     s.push_str("#[derive(Debug, Clone)]\n");
-    s.push_str(&format!("pub struct {} {{\n", e.name));
+    s.push_str(&format!(
+        "pub struct {} {{\n",
+        crate::model::rust_ident(&e.name)
+    ));
     for f in &e.fields {
         // Keep the original GraphQL field name as the Rust field name, converted
         // to snake_case (Rust convention) — this is the `column`, which is already
@@ -87,7 +90,11 @@ fn render_entity(e: &Entity) -> String {
             _ => String::new(),
         };
         s.push_str(&doc);
-        s.push_str(&format!("    pub {}: {},\n", f.column, f.rust_type()));
+        s.push_str(&format!(
+            "    pub {}: {},\n",
+            crate::model::rust_ident(&f.column),
+            f.rust_type()
+        ));
     }
     s.push_str("}\n");
     s
@@ -100,14 +107,17 @@ fn render_enum(e: &EnumDef) -> String {
         e.name
     ));
     s.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
-    s.push_str(&format!("pub enum {} {{\n", e.name));
+    s.push_str(&format!(
+        "pub enum {} {{\n",
+        crate::model::rust_ident(&e.name)
+    ));
     for v in &e.values {
         s.push_str(&format!("    {},\n", pascal_variant(v)));
     }
     s.push_str("}\n\n");
 
     // as_str / from_str for the TEXT round-trip.
-    s.push_str(&format!("impl {} {{\n", e.name));
+    s.push_str(&format!("impl {} {{\n", crate::model::rust_ident(&e.name)));
     s.push_str("    /// The value as stored in the database.\n");
     s.push_str("    pub fn as_str(&self) -> &'static str {\n");
     s.push_str("        match self {\n");
@@ -137,7 +147,7 @@ fn render_enum(e: &EnumDef) -> String {
 /// Turn a GraphQL enum value (`SCREAMING_SNAKE` or `PascalCase`) into a Rust
 /// PascalCase variant: `DEPOSIT` → `Deposit`, `IN_PROGRESS` → `InProgress`.
 fn pascal_variant(value: &str) -> String {
-    value
+    let variant: String = value
         .split('_')
         .filter(|p| !p.is_empty())
         .map(|p| {
@@ -149,7 +159,12 @@ fn pascal_variant(value: &str) -> String {
                 None => String::new(),
             }
         })
-        .collect()
+        .collect();
+    if variant == "Self" {
+        "SelfValue".into()
+    } else {
+        variant
+    }
 }
 
 #[cfg(test)]

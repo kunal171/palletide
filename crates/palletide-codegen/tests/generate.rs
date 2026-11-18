@@ -58,20 +58,20 @@ fn generates_compilable_looking_rust_and_valid_looking_sql() {
     assert!(rs.contains(".bind(&self.from)"));
     // The SQL must be a raw literal — it contains double-quoted identifiers, so a
     // plain "…" literal would not compile.
-    assert!(rs.contains("r#\"INSERT INTO transfers"));
+    assert!(rs.contains("r#\"INSERT INTO \"transfers"));
 
     // --- migration ---
     let sql = &g.migration_sql;
     assert_eq!(g.migration_name, "0001_schema.sql");
-    assert!(sql.contains("CREATE TABLE IF NOT EXISTS transfers ("));
-    assert!(sql.contains("CREATE TABLE IF NOT EXISTS accounts ("));
+    assert!(sql.contains("CREATE TABLE IF NOT EXISTS \"transfers\" ("));
+    assert!(sql.contains("CREATE TABLE IF NOT EXISTS \"accounts\" ("));
     // Keyword columns quoted (from/to), array + jsonb, PK, unique, index.
     assert!(sql.contains("\"from\" TEXT NOT NULL"));
     assert!(sql.contains("\"pool_ids\" TEXT[] NOT NULL"));
     assert!(sql.contains("\"meta\" JSONB"));
     assert!(sql.contains("\"id\" TEXT PRIMARY KEY"));
     assert!(sql.contains("\"handle\" TEXT UNIQUE"));
-    assert!(sql.contains("CREATE INDEX IF NOT EXISTS transfers_from_idx ON transfers (\"from\")"));
+    assert!(sql.contains("CREATE INDEX IF NOT EXISTS transfers_from_idx ON \"transfers\" (\"from\")"));
 
     // --- graphql.rs ---
     let gql = &g.graphql_rs;

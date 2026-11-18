@@ -2931,6 +2931,9 @@ name = "palletide-codegen"
 version = "0.4.0"
 dependencies = [
  "async-graphql-parser",
+ "async-graphql-value",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

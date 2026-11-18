@@ -392,6 +392,11 @@ where
         diverged_height: BlockNumber,
         known_canonical: &str,
     ) -> Result<BlockNumber> {
+        if self.canonical_hash_at(diverged_height).await? != known_canonical {
+            return Err(PalletideError::Source(
+                "incoming parent disagrees with the canonical source".into(),
+            ));
+        }
         let cursor = self.store.cursor().await?.map(|c| c.number).unwrap_or(0);
         let max = self.config.max_reorg_depth;
 
@@ -437,6 +442,7 @@ where
         batch
             .blocks
             .first()
+            .filter(|b| b.id.number == height)
             .map(|b| b.id.hash.clone())
             .ok_or_else(|| {
                 PalletideError::Source(format!("source returned no block at height {height}"))

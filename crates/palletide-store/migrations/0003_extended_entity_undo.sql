@@ -77,6 +77,11 @@ BEGIN
     IF EXISTS (SELECT 1 FROM public.palletide_entity_table WHERE since_height > fork_height) THEN
         RAISE EXCEPTION 'entity tracking started after fork height %; reindex from a clean database', fork_height;
     END IF;
+    IF fork_height > 0
+       AND EXISTS (SELECT 1 FROM public.palletide_block WHERE height > fork_height)
+       AND NOT EXISTS (SELECT 1 FROM public.palletide_block WHERE height = fork_height) THEN
+        RAISE EXCEPTION 'block history unavailable at fork height %', fork_height;
+    END IF;
     -- FK cascade AFTER triggers can journal children after parents. Temporarily
     -- defer immediate FK checks so their inverse order can reconstruct the full
     -- graph. Restore constraint definitions before committing; errors roll back

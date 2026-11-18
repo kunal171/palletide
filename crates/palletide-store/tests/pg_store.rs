@@ -693,12 +693,15 @@ async fn entity_undo_rejects_unattributed_writes_truncate_and_unavailable_histor
         .to_string()
         .contains("pruned"));
     assert_eq!(store.cursor().await.unwrap().unwrap().number, 5);
-    store.rollback_to(2).await.unwrap();
+    assert!(store.rollback_to(2).await.is_err());
+    assert_eq!(store.cursor().await.unwrap().unwrap().number, 5);
+    store.rollback_to(3).await.unwrap();
+    assert_eq!(store.cursor().await.unwrap().unwrap().number, 3);
     let ids: Vec<i32> = sqlx::query_scalar("SELECT id FROM items ORDER BY id")
         .fetch_all(store.pool())
         .await
         .unwrap();
-    assert_eq!(ids, vec![1, 2]);
+    assert_eq!(ids, vec![1, 2, 3]);
     drop_db("entity_bounds").await;
 }
 

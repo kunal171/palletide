@@ -111,3 +111,6 @@ jobs:
 
       - name: Processor reorg integration tests
         run: cargo test -p palletide --test reorg_pg -- --ignored
+
+      - name: Generated schema API integration tests
+        run: cargo test -p palletide-example-schema-api --test read_api -- --ignored

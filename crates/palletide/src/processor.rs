@@ -1,7 +1,7 @@
 //! The [`Processor`]: drives a source through handlers into a store.
 //!
 //! It implements the full run loop — resume, backfill, and live-follow — with
-//! per-block atomic commits and reorg handling. [`run_until`](Processor::run_until)
+//! per-batch atomic commits and reorg handling. [`run_until`](Processor::run_until)
 //! is the one-call entry point (init → backfill → follow with graceful shutdown).
 
 use crate::config::ProcessorConfig;
@@ -63,7 +63,7 @@ where
         &self.store
     }
 
-    /// Run every handler's one-time `init`, then ensure the store schema exists.
+    /// Initialize the store schema, then run every handler's one-time `init`.
     /// Call once before processing begins.
     pub async fn init(&self) -> Result<()> {
         self.store.init().await?;
@@ -79,14 +79,17 @@ where
     /// shutdown, or the first error encountered.
     ///
     /// This is the recommended one-call entry point for a production indexer.
-    /// Backfill runs to completion first (it isn't interrupted mid-history);
-    /// shutdown takes effect during the live-follow phase.
+    /// Shutdown interrupts source waits during backfill or live following.
+    /// Handler writes finish their current batch before the next shutdown check.
     pub async fn run_until<F>(&self, shutdown: F) -> Result<()>
     where
         F: std::future::Future<Output = ()> + Send,
     {
+        tokio::pin!(shutdown);
         self.init().await?;
-        self.backfill().await?;
+        if self.backfill_inner(&mut shutdown).await?.is_none() {
+            return Ok(());
+        }
         self.follow_until(shutdown).await
     }
 
@@ -104,8 +107,23 @@ where
     /// head is reached. Reorgs encountered during backfill rewind the cursor and
     /// fetching continues from the corrected height.
     pub async fn backfill(&self) -> Result<BlockNumber> {
+        Ok(self
+            .backfill_inner(std::future::pending())
+            .await?
+            .expect("uncancelled backfill"))
+    }
+
+    async fn backfill_inner<F: std::future::Future<Output = ()>>(
+        &self,
+        shutdown: F,
+    ) -> Result<Option<BlockNumber>> {
+        tokio::pin!(shutdown);
         let mut next = self.resume_height().await?;
-        let head = self.source.finalized_head().await?;
+        let head = tokio::select! {
+            biased;
+            _ = &mut shutdown => return Ok(None),
+            head = self.source.finalized_head() => head?,
+        };
         self.observer.on_head(head);
 
         while next <= head {
@@ -113,16 +131,29 @@ where
                 .saturating_add(self.config.batch_size.saturating_sub(1))
                 .min(head);
             let fetch_start = Instant::now();
-            let batch = self.source.fetch_batch(next, to).await.inspect_err(|e| {
+            let fetched = tokio::select! {
+                biased;
+                _ = &mut shutdown => return Ok(None),
+                result = self.source.fetch_batch(next, to) => result,
+            };
+            let batch = fetched.inspect_err(|e| {
                 self.observer.on_error("fetch", &e.to_string());
             })?;
             self.observer
                 .on_fetch(batch.blocks.len(), fetch_start.elapsed());
             if batch.blocks.is_empty() {
-                // Source returned nothing for this window; avoid a busy spin.
-                break;
+                return Err(PalletideError::Source(format!(
+                    "source returned no blocks for {next}..={to}"
+                )));
             }
 
+            if batch.first().map(|b| b.id.number) != Some(next)
+                || batch.last().is_some_and(|b| b.id.number > to)
+            {
+                return Err(PalletideError::Source(
+                    "source returned an unexpected block range".into(),
+                ));
+            }
             // Commit the whole batch in one transaction (DB-side throughput).
             match self.process_batch_blocks(&batch.blocks).await? {
                 None => {
@@ -137,7 +168,7 @@ where
         // Reached head. Let the store finalize deferred backfill work (e.g.
         // recreate indexes dropped for faster bulk inserts) before follow starts.
         self.store.on_backfill_complete().await?;
-        Ok(next)
+        Ok(Some(next))
     }
 
     /// Follow the finalized tip: pull one batch at a time from the source's
@@ -170,6 +201,7 @@ where
             }
             // A live subscription need not replay the blocks preceding this tip.
             // Refill the corrected chain explicitly after rewinding a fork.
+            self.fill_live_gap(&batch.blocks).await?;
             if self.process_batch_blocks(&batch.blocks).await?.is_some() {
                 self.backfill().await?;
             }
@@ -204,52 +236,34 @@ where
                 self.observer.on_head(last.id.number);
             }
             // Commit the tip batch in one transaction (reorg-aware).
-            if self.process_batch_blocks(&batch.blocks).await?.is_some() {
-                self.backfill().await?;
+            if let (Some(cursor), Some(first)) = (self.store.cursor().await?, batch.first()) {
+                if first.id.number > cursor.number.saturating_add(1)
+                    && self.backfill_inner(&mut shutdown).await?.is_none()
+                {
+                    return Ok(());
+                }
+            }
+            if self.process_batch_blocks(&batch.blocks).await?.is_some()
+                && self.backfill_inner(&mut shutdown).await?.is_none()
+            {
+                return Ok(());
             }
         }
     }
 
-    /// Process the next block in chain order, handling reorgs.
-    ///
-    /// Before committing, validate that `block.parent_hash` matches the hash we
-    /// stored for `block.number - 1`:
-    /// - **Match** (or we hold no record of the parent — first block, or pruned):
-    ///   commit normally.
-    /// - **Mismatch**: a reorg replaced the parent. Walk back to the fork point
-    ///   (the highest height whose stored hash still agrees with the new chain is
-    ///   unknown from a single block, so we roll back to the parent height − 1
-    ///   conservatively, i.e. drop the divergent parent and above) and signal the
-    ///   caller to re-fetch from there. We roll back to `block.number - 1` so the
-    ///   diverged parent is removed and will be re-indexed from the new chain.
-    ///
-    /// Returns `Ok(Some(refetch_from))` when a reorg was handled and the caller
-    /// should resume fetching at `refetch_from`; `Ok(None)` when the block was
-    /// committed normally.
-    pub async fn process_block(&self, block: &Block) -> Result<Option<BlockNumber>> {
-        // Genesis / very first block has no parent to validate against.
-        if block.id.number > 0 {
-            let parent_height = block.id.number - 1;
-            if let Some(stored_parent_hash) = self.store.hash_at(parent_height).await? {
-                if stored_parent_hash != block.parent_hash {
-                    // Reorg: walk to the true common ancestor (same as the batch
-                    // path), roll back once, and ask the caller to re-index from
-                    // the fork onward.
-                    let fork = self
-                        .find_fork_point(parent_height, &block.parent_hash)
-                        .await?;
-                    let depth = match self.store.cursor().await? {
-                        Some(c) => c.number.saturating_sub(fork),
-                        None => 0,
-                    };
-                    self.store.rollback_to(fork).await?;
-                    self.observer.on_reorg(fork, depth);
-                    return Ok(Some(fork.saturating_add(1)));
-                }
+    async fn fill_live_gap(&self, blocks: &[Block]) -> Result<()> {
+        if let (Some(cursor), Some(first)) = (self.store.cursor().await?, blocks.first()) {
+            if first.id.number > cursor.number.saturating_add(1) {
+                self.backfill().await?;
             }
         }
-        self.commit_block(block).await?;
-        Ok(None)
+        Ok(())
+    }
+
+    /// Validate and process one block through the same continuity, replay and
+    /// reorg checks as a batch. A handled fork returns the next refetch height.
+    pub async fn process_block(&self, block: &Block) -> Result<Option<BlockNumber>> {
+        self.process_batch_blocks(std::slice::from_ref(block)).await
     }
 
     /// Process and commit a single block atomically:
@@ -283,36 +297,72 @@ where
     /// Committing per-batch (not per-block) is the DB-side throughput lever: N
     /// blocks' handler writes + the cursor advance land in a single transaction.
     pub async fn process_batch_blocks(&self, blocks: &[Block]) -> Result<Option<BlockNumber>> {
+        for pair in blocks.windows(2) {
+            if pair[0].id.number.checked_add(1) != Some(pair[1].id.number)
+                || pair[1].parent_hash != pair[0].id.hash
+            {
+                return Err(PalletideError::Source("non-contiguous block batch".into()));
+            }
+        }
+        let cursor = self.store.cursor().await?;
+        let mut skip = 0;
+        if let Some(cursor) = &cursor {
+            for block in blocks {
+                if block.id.number > cursor.number {
+                    break;
+                }
+                match self.store.hash_at(block.id.number).await? {
+                    Some(hash) if hash == block.id.hash => skip += 1,
+                    Some(_) => break,
+                    None => {
+                        return Err(PalletideError::Store(
+                            "cannot verify replay outside retained history".into(),
+                        ))
+                    }
+                }
+            }
+        }
+        let blocks = &blocks[skip..];
         let Some(first) = blocks.first() else {
             return Ok(None);
         };
-
-        // Reorg check against the first block's parent.
+        if let Some(cursor) = &cursor {
+            if first.id.number > cursor.number.saturating_add(1) {
+                return Err(PalletideError::Source(format!(
+                    "block gap: expected {}, received {}",
+                    cursor.number.saturating_add(1),
+                    first.id.number
+                )));
+            }
+        }
         if first.id.number > 0 {
             let parent_height = first.id.number - 1;
-            if let Some(stored_parent_hash) = self.store.hash_at(parent_height).await? {
-                if stored_parent_hash != first.parent_hash {
-                    // The chains diverge at or below `parent_height`. Walk down to
-                    // the TRUE common ancestor in one pass (rather than rewinding
-                    // one block per engine iteration), roll back once to it, and
-                    // ask the caller to re-fetch the corrected chain from there.
-                    //
-                    // We already know the canonical hash at `parent_height`: it's
-                    // the incoming block's stated parent (`first.parent_hash`), so
-                    // the first comparison needs no source fetch — a 1-block reorg
-                    // (the common case) resolves without any extra round-trip.
-                    let fork = self
-                        .find_fork_point(parent_height, &first.parent_hash)
-                        .await?;
-                    let depth = match self.store.cursor().await? {
-                        Some(c) => c.number.saturating_sub(fork),
-                        None => 0,
-                    };
-                    self.store.rollback_to(fork).await?;
-                    self.observer.on_reorg(fork, depth);
-                    return Ok(Some(fork.saturating_add(1)));
+            let stored_parent = self.store.hash_at(parent_height).await?;
+            let replacement = cursor.as_ref().is_some_and(|c| first.id.number <= c.number);
+            if stored_parent
+                .as_ref()
+                .is_some_and(|h| h != &first.parent_hash)
+                || replacement
+            {
+                let fork = if stored_parent.as_ref() == Some(&first.parent_hash) {
+                    parent_height
+                } else {
+                    self.find_fork_point(parent_height, &first.parent_hash)
+                        .await?
+                };
+                let depth = cursor.as_ref().map_or(0, |c| c.number.saturating_sub(fork));
+                if self.config.max_reorg_depth != 0 && depth > self.config.max_reorg_depth {
+                    return Err(PalletideError::ReorgTooDeep {
+                        depth,
+                        max: self.config.max_reorg_depth,
+                    });
                 }
+                self.store.rollback_to(fork).await?;
+                self.observer.on_reorg(fork, depth);
+                return Ok(Some(fork.saturating_add(1)));
             }
+        } else if cursor.is_some() {
+            return Err(PalletideError::Source("conflicting genesis block".into()));
         }
 
         self.commit_batch(blocks).await?;
@@ -354,10 +404,15 @@ where
                 return Err(PalletideError::ReorgTooDeep { depth, max });
             }
 
-            // No stored hash here → below the retained window (or genesis): treat
-            // this height as the ancestor. We can't roll back into unknown ground.
+            // Missing retained history cannot prove a common ancestor. Height
+            // zero is a fresh-index baseline only when genesis wasn't indexed.
             let Some(stored) = self.store.hash_at(height).await? else {
-                return Ok(height);
+                if height == 0 {
+                    return Ok(0);
+                }
+                return Err(PalletideError::Store(format!(
+                    "cannot verify common ancestor at height {height}: history unavailable"
+                )));
             };
 
             if stored == canonical_at_height {
@@ -366,9 +421,7 @@ where
             }
 
             if height == 0 {
-                // Diverged all the way to genesis (shouldn't happen on a real
-                // chain, but don't underflow): genesis is the ancestor.
-                return Ok(0);
+                return Err(PalletideError::Source("chains disagree on genesis".into()));
             }
 
             // Still diverging: fetch the canonical block at the next height down so
@@ -1166,5 +1219,122 @@ mod tests {
         p.commit_batch(&test_chain(0, 3)).await.unwrap();
         assert_eq!(h.heights(), vec![0, 1, 2]);
         assert_eq!(p.store().cursor().await.unwrap().unwrap().number, 2);
+    }
+    #[tokio::test]
+    async fn rejects_gaps_between_batches() {
+        let p = processor_with(vec![]);
+        p.process_batch_blocks(&[test_block(1, "1", "0")])
+            .await
+            .unwrap();
+        let result = p.process_batch_blocks(&[test_block(3, "3", "2")]).await;
+        assert!(
+            result.is_err(),
+            "gap accepted: cursor={:?}, height2={:?}",
+            p.store().cursor().await.unwrap(),
+            p.store().hash_at(2).await.unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn committed_replays_do_not_run_handlers_again() {
+        let handler = Arc::new(RecordingHandler::new());
+        let p = processor_with(vec![handler.clone()]);
+        let b = test_block(1, "1", "0");
+        p.process_batch_blocks(std::slice::from_ref(&b))
+            .await
+            .unwrap();
+        p.process_batch_blocks(&[b]).await.unwrap();
+        assert_eq!(
+            handler.heights(),
+            vec![1],
+            "same committed block must not be applied twice"
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_disconnected_blocks_within_batch() {
+        let p = processor_with(vec![]);
+        let result = p
+            .process_batch_blocks(&[test_block(1, "1", "0"), test_block(2, "2", "wrong-parent")])
+            .await;
+        assert!(
+            result.is_err(),
+            "batch with disconnected parent hashes was committed"
+        );
+    }
+
+    #[tokio::test]
+    async fn shutdown_stops_before_backfill_fetches_or_writes() {
+        let handler = Arc::new(RecordingHandler::new());
+        let p = processor_over(
+            test_chain(1, 20),
+            vec![handler.clone()],
+            ProcessorConfig::from_height(1),
+        );
+        p.run_until(std::future::ready(())).await.unwrap();
+        assert!(handler.heights().is_empty());
+        assert!(p.store().cursor().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn live_gap_is_filled_before_processing_the_new_tip() {
+        let handler = Arc::new(RecordingHandler::new());
+        let blocks = test_chain(1, 3);
+        let source = ScriptedSource::new(blocks.clone());
+        source.next_finalized().await.unwrap();
+        source.next_finalized().await.unwrap();
+        let p = Processor::new(
+            source,
+            MemStore::new(),
+            vec![handler.clone()],
+            ProcessorConfig::from_height(1),
+        );
+        p.process_batch_blocks(&blocks[..1]).await.unwrap();
+        p.follow(Some(1)).await.unwrap();
+        assert_eq!(handler.heights(), vec![1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn shutdown_cancels_a_pending_backfill_request() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct Stalled(Arc<AtomicBool>);
+        #[async_trait::async_trait]
+        impl DataSource for Stalled {
+            async fn finalized_head(&self) -> Result<u32> {
+                Ok(10)
+            }
+            async fn fetch_batch(
+                &self,
+                _from: u32,
+                _to: u32,
+            ) -> Result<palletide_core::BlockBatch> {
+                self.0.store(true, Ordering::Relaxed);
+                std::future::pending().await
+            }
+            async fn next_finalized(&self) -> Result<palletide_core::BlockBatch> {
+                std::future::pending().await
+            }
+            fn name(&self) -> &str {
+                "stalled"
+            }
+        }
+        let requested = Arc::new(AtomicBool::new(false));
+        let p = Processor::new(
+            Stalled(requested.clone()),
+            MemStore::new(),
+            vec![],
+            ProcessorConfig::default(),
+        );
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            p.run_until(async {
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(requested.load(Ordering::Relaxed));
+        assert!(p.store().cursor().await.unwrap().is_none());
     }
 }

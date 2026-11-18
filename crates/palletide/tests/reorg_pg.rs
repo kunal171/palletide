@@ -212,3 +212,53 @@ async fn live_reorg_refetches_missing_blocks_before_advancing_to_tip() {
     assert_eq!(processor.store().cursor().await.unwrap().unwrap().number, 4);
     cleanup(processor, &admin, "live").await;
 }
+#[tokio::test]
+#[ignore = "database: needs Postgres"]
+async fn pruned_history_is_not_assumed_to_be_a_common_ancestor() {
+    let canonical = vec![
+        block(1, "a", "0"),
+        block(2, "b", "1a"),
+        block(3, "b", "2b"),
+        block(4, "b", "3b"),
+        block(5, "b", "4b"),
+        block(6, "b", "5b"),
+    ];
+    let (initial, admin) = setup("pruned_audit", canonical.clone(), None).await;
+    let store = initial.store().clone().with_reorg_retention(2);
+    drop(initial);
+    let p = Processor::new(
+        ForkSource {
+            canonical,
+            tip: Mutex::new(None),
+        },
+        store,
+        vec![Arc::new(Projection)],
+        ProcessorConfig::from_height(1).with_max_reorg_depth(0),
+    );
+    p.process_batch_blocks(&[
+        block(1, "a", "0"),
+        block(2, "a", "1a"),
+        block(3, "a", "2a"),
+        block(4, "a", "3a"),
+        block(5, "a", "4a"),
+    ])
+    .await
+    .unwrap();
+    let result = p.process_batch_blocks(&[block(6, "b", "5b")]).await;
+    let events: Vec<String> = sqlx::query_scalar("SELECT id FROM events ORDER BY id")
+        .fetch_all(p.store().pool())
+        .await
+        .unwrap();
+    let diagnostic = format!(
+        "result={:?}; remaining events={:?}; cursor={:?}",
+        result,
+        events,
+        p.store().cursor().await.unwrap()
+    );
+    cleanup(p, &admin, "pruned_audit").await;
+    assert!(
+        result.is_err(),
+        "unknown history accepted as ancestor: {}",
+        diagnostic
+    );
+}

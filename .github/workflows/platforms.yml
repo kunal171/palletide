@@ -22,3 +22,5 @@ jobs:
           toolchain: "1.96.0"
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-targets --all-features --locked
+      - run: cargo build -p palletide-codegen -p palletide-example-transfers --locked
+      - run: cargo run -p palletide-codegen --locked -- --version

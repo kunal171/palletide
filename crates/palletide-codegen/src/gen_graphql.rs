@@ -11,19 +11,9 @@
 //! plus the framework's built-in `StatusQuery` (`indexerStatus`) into a single
 //! GraphQL Query — exactly the hand-written shape in `examples/transfers`.
 //!
-//! ## Deliberate scope (v1)
-//! - Read-only: a list + a count per entity; no mutations, no relation joins
-//!   (relations are id strings), no cursor pagination.
-//! - SQL is **parameterized** — the `limit`, the optional `id` filter, and the
-//!   ordering column are never string-interpolated from user input.
-//! - Field names become camelCase automatically (async-graphql's default rename),
-//!   so a snake_case Rust field `block_height` serves as `blockHeight`.
-//!
-//! ## What the generated code depends on
-//! `async-graphql` and `sqlx` (postgres) in the builder's crate, plus
-//! `palletide-graphql` for `StatusQuery`. The read model is separate from the
-//! `entities.rs` structs on purpose: the persistence model and the API model
-//! have different derives and can diverge later without coupling.
+//! Queries use a shared parameterized runtime for indexed filters, whitelisted
+//! ordering and keyset cursors. Forward and reverse relations have bounded
+//! resolvers; scalar persistence models remain separate from API models.
 
 use crate::model::{Entity, FieldType, Scalar, Schema};
 

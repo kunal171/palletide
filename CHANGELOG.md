@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Validate chain continuity, skip verified replays, reject unverifiable fork ancestors, and fill live gaps.
+- Correct two-byte SS58 prefixes and normalize portal account/amount values without rounding large numbers.
+- Add bounded RPC/HTTP requests, same-chain endpoint failover, stream recovery, cancellable backfill, and generic chain/header adapters.
+- Preserve immutable migrations and generate conservative schema diffs with undo checkpoints.
+- Generate escaped Rust identifiers, bulk upserts, filtered/ordered keyset queries, and forward/reverse relation resolvers. Relation query fields now return objects.
+- Support persistent partition roots and cascading foreign keys in entity rollback.
+- Add compiled schema API tests, a journal-enabled bulk benchmark, and Linux/macOS/Windows build and packaging jobs.
+
 ## 0.4.0
 
 - Restore registered PostgreSQL application tables on reorgs using a durable

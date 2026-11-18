@@ -62,10 +62,8 @@ fn on_decode_failure(
 
 /// Build our [`Block`] from a subxt client positioned at a block.
 ///
-/// Concrete to [`crate::ChainConfig`] (subxt's `PolkadotConfig`) so we can read the
-/// concrete `SubstrateHeader::parent_hash` field — the generic `Header` trait
-/// does not expose a parent hash. `finalized` is supplied by the caller (the
-/// source knows whether this height is at/below the finalized head).
+/// Generic over the chain configuration and its [`ParentHashHeader`] adapter.
+/// The source supplies finality and the per-block client supplies metadata.
 pub async fn map_block<T: Config, C>(
     at: &ClientAtBlock<T, C>,
     finalized: bool,
@@ -85,8 +83,7 @@ where
             .block_header()
             .await
             .map_err(|e| PalletideError::Source(format!("fetch header: {e}")))?;
-        // `ChainConfig::Header` is `SubstrateHeader<H256>`, which exposes
-        // `parent_hash` directly.
+        // Read through the header adapter rather than assuming a concrete layout.
         format!("0x{}", hex::encode(header.parent_hash_bytes()))
     };
     let spec_version = at.spec_version();

@@ -80,14 +80,35 @@ keys, quoted names, generated columns, identity columns, JSON, and numeric value
 are supported. Standard foreign keys may be used; deferrable constraints are
 deferred during restoration.
 
-Partitioned or inherited tables and foreign keys with cascading or SET
-NULL/DEFAULT actions are rejected during registration. TRUNCATE is rejected;
+Persistent partition roots and cascading foreign keys are supported. Register the
+partition root rather than individual partitions. During restoration, immediate
+foreign-key checks are temporarily deferred, checked against the completed
+state, and restored to their original definitions in the same transaction.
+The tracking user must own the affected tables. Ordinary inheritance and
+unlogged/temporary tables are rejected. TRUNCATE is rejected;
 use DELETE so row changes can be journaled. Sequences are not rewound. Register
-all related chain-derived tables before indexing, keep their schema stable
-while undo history is retained, and ensure custom triggers do not introduce
+all related chain-derived tables before indexing, use a schema checkpoint for DDL changes, and ensure custom triggers do not introduce
 untracked side effects. Disabling triggers or modifying tracking metadata is
 outside the rollback contract.
 
 The built-in sources follow finalized blocks, where normal chain forks are not
 expected. The parent-hash check protects against divergence within the retained
 window. `MAX_REORG_DEPTH` bounds the ancestor walk; a deeper fork stops indexing.
+
+## Schema checkpoints
+
+Apply trusted application DDL with `store.apply_schema_change(sql).await?`.
+The operation clears older undo records, establishes a new rollback baseline,
+applies the DDL and refreshes tracking in one transaction. A failing migration
+rolls all of that back. New blocks remain reversible, but a reorg before this
+schema boundary requires a reindex. Generated incremental migrations include
+`palletide_checkpoint_entities()` before their DDL; run them with SQLx's default
+transactional migrations, never `no-transaction` mode.
+
+The processor rejects gaps, disconnected batches, unverifiable old replays and
+unknown fork ancestors. Matching committed blocks are skipped. Reconnect gaps
+are fetched before a live tip is applied. Finite retention never serves as proof
+that a missing block hash is a common ancestor.
+
+Framework bookkeeping lives in PostgreSQL's `public` schema; application tables
+may use other schemas when registered with qualified names.

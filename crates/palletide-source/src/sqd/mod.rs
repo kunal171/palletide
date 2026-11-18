@@ -5,7 +5,7 @@
 //! **Backfill-only.** The SQD portal serves finalized history but does not stream
 //! a live tip for Substrate chains, so this source implements `finalized_head`
 //! and `fetch_batch` but not `next_finalized` (which returns a clear error). A
-//! full indexer pairs it with an RPC source for the live tip (a future
+//! full indexer pairs it with an RPC source for the live tip (the
 //! `HybridSource`); on its own it is ideal for the historical catch-up phase.
 //!
 //! Behind the `sqd` feature.

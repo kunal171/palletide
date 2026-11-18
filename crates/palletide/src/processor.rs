@@ -385,8 +385,8 @@ where
     /// bound.
     ///
     /// `known_canonical` is the source's canonical hash at `diverged_height` (the
-    /// incoming block's `parent_hash`), so the first comparison is free; only if
-    /// the divergence runs deeper do we fetch canonical hashes from the source.
+    /// incoming block's `parent_hash`). Verify it against the source before
+    /// walking backward so inconsistent composite sources cannot invent a fork.
     async fn find_fork_point(
         &self,
         diverged_height: BlockNumber,

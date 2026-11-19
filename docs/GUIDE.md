@@ -17,11 +17,10 @@ WS_URL=wss://rpc.polkadot.io cargo run     # backfill + follow + GraphQL on :435
 
 ## Install the CLI
 
-Requires Rust 1.96 or newer. Install from GitHub until the renamed crates are
-published on crates.io:
+Requires Rust 1.96 or newer. Install from crates.io:
 
 ```bash
-cargo install --git https://github.com/kunal171/palletide --locked palletide-codegen
+cargo install palletide-codegen --version 0.5.0 --locked
 palletide-codegen --help
 ```
 

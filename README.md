@@ -14,10 +14,10 @@ optional schema tool generates entities, migrations, upserts, and a GraphQL API.
 
 You need Rust 1.96+ and Docker for PostgreSQL.
 
-Install the CLI from GitHub (the renamed crates are not yet published):
+Install the CLI from crates.io:
 
 ```bash
-cargo install --git https://github.com/kunal171/palletide --locked palletide-codegen
+cargo install palletide-codegen --version 0.5.0 --locked
 ```
 
 Create and run an indexer:

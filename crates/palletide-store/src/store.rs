@@ -67,7 +67,7 @@ impl PgStore {
     /// Register a table for durable INSERT/UPDATE/DELETE rollback. Call after
     /// creating the table in `Handler::init`; registration survives restarts.
     /// Tables need a primary key. Writes must use the processor transaction;
-    /// TRUNCATE and schema changes while undo history exists are unsupported.
+    /// TRUNCATE is unsupported. Use `apply_schema_change` to checkpoint DDL.
     /// Register every application table whose state depends on indexed blocks.
     pub async fn track_table(&self, table: &str) -> Result<()> {
         sqlx::query("SELECT palletide_track_table($1::text::regclass)")
@@ -77,6 +77,34 @@ impl PgStore {
             .map_err(|e| store_err("track entity table", e))?;
         self.tracking.store(true, Ordering::Release);
         Ok(())
+    }
+
+    /// Apply trusted application DDL with an atomic undo checkpoint. Reorgs
+    /// before this schema boundary are rejected; later writes remain reversible.
+    /// A failing DDL statement rolls back the checkpoint and the schema change.
+    pub async fn apply_schema_change(&self, ddl: &str) -> Result<()> {
+        let mut tx = self.begin().await?;
+        sqlx::query("SELECT palletide_checkpoint_entities()")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| store_err("schema checkpoint", e))?;
+        sqlx::raw_sql(sqlx::AssertSqlSafe(ddl.to_string()))
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| store_err("schema change", e))?;
+        let tables: Vec<String> =
+            sqlx::query_scalar("SELECT relation::regclass::text FROM palletide_entity_table")
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|e| store_err("tracked tables", e))?;
+        for table in tables {
+            sqlx::query("SELECT palletide_track_table($1::text::regclass)")
+                .bind(table)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| store_err("refresh tracking", e))?;
+        }
+        self.commit(tx).await
     }
 
     /// Run a **handler's own** versioned migrations, tracked separately from the

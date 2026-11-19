@@ -127,6 +127,7 @@ pub fn parse_schema(source: &str) -> Result<Schema, ParseError> {
         let entity_name = t.node.name.node.to_string();
 
         let mut fields: Vec<Field> = Vec::new();
+        let mut derived = Vec::new();
         for f in &obj.fields {
             let field_name = f.node.name.node.to_string();
             if fields.iter().any(|x| x.name == field_name) {
@@ -142,6 +143,43 @@ pub fn parse_schema(source: &str) -> Result<Schema, ParseError> {
             // trying to store a list. (Serving these as GraphQL fields is a
             // follow-up; see RFC 034.)
             if has_directive(&f.node.directives, "derivedFrom") {
+                let directive = f
+                    .node
+                    .directives
+                    .iter()
+                    .find(|d| d.node.name.node.as_str() == "derivedFrom")
+                    .unwrap();
+                let field = directive
+                    .node
+                    .arguments
+                    .iter()
+                    .find(|(n, _)| n.node.as_str() == "field")
+                    .and_then(|(_, v)| {
+                        if let async_graphql_value::ConstValue::String(s) = &v.node {
+                            Some(s.clone())
+                        } else {
+                            None
+                        }
+                    });
+                let target = match &f.node.ty.node.base {
+                    BaseType::List(inner) => match &inner.base {
+                        BaseType::Named(n) => Some(n.to_string()),
+                        _ => None,
+                    },
+                    BaseType::Named(n) => Some(n.to_string()),
+                };
+                let (Some(field), Some(target)) = (field, target) else {
+                    return Err(ParseError::Syntax(format!(
+                        "invalid @derivedFrom on {entity_name}.{field_name}"
+                    )));
+                };
+                derived.push(crate::model::DerivedRelation {
+                    name: field_name,
+                    target,
+                    field,
+                    many: matches!(f.node.ty.node.base, BaseType::List(_)),
+                    nullable: f.node.ty.node.nullable,
+                });
                 continue;
             }
 
@@ -201,6 +239,17 @@ pub fn parse_schema(source: &str) -> Result<Schema, ParseError> {
                 });
             }
 
+            if is_id && field_ty != FieldType::Scalar(crate::model::Scalar::Id) {
+                return Err(ParseError::NullableId {
+                    entity: entity_name.clone(),
+                    field: field_name,
+                });
+            }
+            if field_name == "_cursor" || to_snake_case(&field_name).starts_with("_palletide_") {
+                return Err(ParseError::Syntax(
+                    "reserved generated query field name".into(),
+                ));
+            }
             fields.push(Field {
                 column: to_snake_case(&field_name),
                 name: field_name,
@@ -223,10 +272,68 @@ pub fn parse_schema(source: &str) -> Result<Schema, ParseError> {
             table: table_name(&entity_name),
             name: entity_name,
             fields,
+            derived,
         });
     }
 
-    Ok(Schema { entities, enums })
+    let schema = Schema { entities, enums };
+    let mut generated_types = std::collections::HashSet::from([
+        "QueryRoot".to_string(),
+        "PalletideStatusQuery".to_string(),
+        "IndexerStatus".to_string(),
+        "QueryColumn".to_string(),
+        "EntityFilter".to_string(),
+    ]);
+    let mut tables = std::collections::HashSet::new();
+    for entity in &schema.entities {
+        if !tables.insert(&entity.table)
+            || !generated_types.insert(crate::model::rust_ident(&entity.name))
+            || !generated_types.insert(format!("{}Query", entity.name))
+        {
+            return Err(ParseError::Syntax(format!(
+                "generated type or table name collision: {}",
+                entity.name
+            )));
+        }
+    }
+    for entity in &schema.entities {
+        for derived in &entity.derived {
+            let valid = schema
+                .entity(&derived.target)
+                .and_then(|t| t.fields.iter().find(|f| f.name == derived.field))
+                .is_some_and(
+                    |f| matches!(&f.ty, FieldType::Relation(target) if target == &entity.name),
+                );
+            if !valid {
+                return Err(ParseError::Syntax(format!(
+                    "invalid reverse relation {}.{}",
+                    entity.name, derived.name
+                )));
+            }
+        }
+        let mut identifiers = std::collections::HashSet::new();
+        for derived in &entity.derived {
+            let name = to_snake_case(&derived.name);
+            if derived.name == "_cursor"
+                || name.starts_with("_palletide_")
+                || !identifiers.insert(crate::model::rust_ident(&name))
+            {
+                return Err(ParseError::Syntax(format!(
+                    "reserved or colliding relation name in {}",
+                    entity.name
+                )));
+            }
+        }
+        for field in &entity.fields {
+            if !identifiers.insert(crate::model::rust_ident(&field.column)) {
+                return Err(ParseError::Syntax(format!(
+                    "field name collision in {}",
+                    entity.name
+                )));
+            }
+        }
+    }
+    Ok(schema)
 }
 
 /// Is `name` among these directives? (case-sensitive, as GraphQL is)

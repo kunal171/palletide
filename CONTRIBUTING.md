@@ -154,3 +154,12 @@ wanted. GitHub releases can be built without registry credentials.
 The repository pins Rust in `rust-toolchain.toml`; use the same version locally,
 in Docker, and in CI. Database-only processor reorg tests run with
 `cargo test -p palletide --test reorg_pg -- --ignored` and `PALLETIDE_TEST_DB` set.
+
+Native platform checks compile all workspace targets on Linux ARM64, macOS ARM64
+and Intel, and Windows x64. Tag releases package native binaries and per-target
+checksums through `scripts/package-release.py`. This does not retroactively add
+assets to older releases.
+
+The schema API integration test compiles generated Rust and executes queries,
+bulk writes, relations, cursors and rollback against PostgreSQL. Run it with
+`cargo test -p palletide-example-schema-api --test read_api -- --ignored`.

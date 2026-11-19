@@ -1,0 +1,67 @@
+{
+  "entities": [
+    {
+      "name": "Transfer",
+      "table": "transfers",
+      "fields": [
+        {
+          "name": "id",
+          "column": "id",
+          "ty": {
+            "Scalar": "Id"
+          },
+          "nullable": false,
+          "indexed": false,
+          "unique": false,
+          "is_id": true
+        },
+        {
+          "name": "blockHeight",
+          "column": "block_height",
+          "ty": {
+            "Scalar": "Int"
+          },
+          "nullable": false,
+          "indexed": true,
+          "unique": false,
+          "is_id": false
+        },
+        {
+          "name": "from",
+          "column": "from",
+          "ty": {
+            "Scalar": "String"
+          },
+          "nullable": false,
+          "indexed": false,
+          "unique": false,
+          "is_id": false
+        },
+        {
+          "name": "to",
+          "column": "to",
+          "ty": {
+            "Scalar": "String"
+          },
+          "nullable": true,
+          "indexed": false,
+          "unique": false,
+          "is_id": false
+        },
+        {
+          "name": "amount",
+          "column": "amount",
+          "ty": {
+            "Scalar": "BigInt"
+          },
+          "nullable": false,
+          "indexed": false,
+          "unique": false,
+          "is_id": false
+        }
+      ],
+      "derived": []
+    }
+  ],
+  "enums": []
+}

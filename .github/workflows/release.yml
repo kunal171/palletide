@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write # needed to create the GitHub Release
 
+defaults:
+  run:
+    shell: bash
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -86,6 +90,14 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -96,18 +108,14 @@ jobs:
       - name: Build CLI and example (release)
         run: cargo build --release --locked -p palletide-codegen -p palletide-example-transfers --target ${{ matrix.target }}
       - name: Package
-        run: |
-          tarball="palletide-transfers-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
-          tar -C "target/${{ matrix.target }}/release" -czf "$tarball" transfers
-          cli_tarball="palletide-codegen-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
-          tar -C "target/${{ matrix.target }}/release" -czf "$cli_tarball" palletide-codegen
-          sha256sum "$tarball" "$cli_tarball" > SHA256SUMS
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python scripts/package-release.py
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
           path: |
-            palletide-*.tar.gz
-            SHA256SUMS
+            dist/*
 
   # Create the GitHub Release with auto-generated notes and the built artifacts.
   release:
@@ -149,4 +157,4 @@ jobs:
             --title "${GITHUB_REF_NAME}" \
             --notes-file release-notes.md \
             ${{ steps.prerelease.outputs.flag }} \
-            artifacts/**/*.tar.gz artifacts/**/SHA256SUMS
+            artifacts/**/*.tar.gz artifacts/**/SHA256SUMS-*

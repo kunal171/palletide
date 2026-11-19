@@ -73,7 +73,10 @@ impl ProcessorObserver for PrometheusObserver {
         self.publish_lag();
     }
 
-    fn on_reorg(&self, _fork_height: BlockNumber, depth: u32) {
+    fn on_reorg(&self, fork_height: BlockNumber, depth: u32) {
+        self.cursor.store(fork_height as u64, Ordering::Relaxed);
+        gauge!("palletide_cursor_height").set(fork_height as f64);
+        self.publish_lag();
         counter!("palletide_reorgs_total").increment(1);
         histogram!("palletide_reorg_depth").record(depth as f64);
     }
@@ -151,6 +154,6 @@ mod tests {
 
         // Internal state tracks head and cursor for the lag gauge.
         assert_eq!(o.head.load(Ordering::Relaxed), 100);
-        assert_eq!(o.cursor.load(Ordering::Relaxed), 40);
+        assert_eq!(o.cursor.load(Ordering::Relaxed), 30);
     }
 }

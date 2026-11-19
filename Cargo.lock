@@ -2931,6 +2931,9 @@ name = "palletide-codegen"
 version = "0.4.0"
 dependencies = [
  "async-graphql-parser",
+ "async-graphql-value",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
@@ -2977,6 +2980,20 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "palletide-example-schema-api"
+version = "0.4.0"
+dependencies = [
+ "async-graphql",
+ "palletide",
+ "palletide-graphql",
+ "palletide-store",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
 ]
 
 [[package]]

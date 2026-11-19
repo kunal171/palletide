@@ -109,13 +109,13 @@ pub(crate) fn json_to_value(json: &serde_json::Value) -> Value {
         J::Null => Value::unnamed_composite(Vec::new()),
         J::Bool(b) => Value::bool(*b),
         J::Number(n) => {
-            if let Some(u) = n.as_u64() {
-                Value::u128(u as u128)
-            } else if let Some(i) = n.as_i64() {
-                Value::i128(i as i128)
+            let decimal = n.to_string();
+            if let Ok(value) = decimal.parse::<u128>() {
+                Value::u128(value)
+            } else if let Ok(value) = decimal.parse::<i128>() {
+                Value::i128(value)
             } else {
-                // Non-integer (float) — chain values are integers, but be safe.
-                Value::u128(n.as_f64().unwrap_or(0.0) as u128)
+                Value::string(decimal)
             }
         }
         J::String(s) => Value::string(s.clone()),
@@ -393,5 +393,37 @@ mod tests {
         assert!(b.extrinsics.is_empty());
         assert_eq!(b.spec_version, 0, "defaulted when absent");
         assert_eq!(b.timestamp, None);
+    }
+    #[test]
+    fn portal_fields_work_with_shared_handler_helpers() {
+        let value = json_to_value(
+            &serde_json::json!({"amount":"100000000000000000000", "from":format!("0x{}", "01".repeat(32))}),
+        );
+        assert_eq!(
+            crate::value::field_bigint(&value, "amount"),
+            Some("100000000000000000000".into())
+        );
+        assert!(crate::value::field_account_ss58(&value, "from", 42).is_some());
+    }
+
+    #[test]
+    fn portal_hex_accounts_work_with_shared_helpers() {
+        let value = json_to_value(&serde_json::json!({"from":format!("0x{}", "01".repeat(32))}));
+        assert!(
+            crate::value::field_account_ss58(&value, "from", 42).is_some(),
+            "portal hex account was not extracted"
+        );
+    }
+
+    #[test]
+    fn portal_large_json_numbers_are_not_rounded_or_truncated() {
+        let json: serde_json::Value =
+            serde_json::from_str(r#"{"amount":100000000000000000001,"fraction":1.5}"#).unwrap();
+        let value = json_to_value(&json);
+        assert_eq!(
+            crate::value::field_bigint(&value, "amount").as_deref(),
+            Some("100000000000000000001")
+        );
+        assert!(crate::value::field_bigint(&value, "fraction").is_none());
     }
 }

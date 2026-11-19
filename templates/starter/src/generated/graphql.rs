@@ -3,74 +3,69 @@
 // Regenerated from your schema. Edit the schema and re-run `palletide-codegen
 // generate` instead of changing anything here.
 
-#![allow(dead_code)]
-
-use async_graphql::{Context, MergedObject, Object, SimpleObject};
+#![allow(dead_code, clippy::too_many_arguments)]
+use async_graphql::{Context, MergedObject, Object, SimpleObject, ComplexObject};
 use sqlx::{PgPool, Row};
-use palletide_graphql::StatusQuery;
-
-/// A row of the `transfers` table, exposed as a GraphQL type.
-#[derive(SimpleObject, Debug, Clone)]
+use palletide_graphql::{StatusQuery as PalletideStatusQuery, QueryColumn, EntityFilter, query_entities, encode_cursor};
+#[derive(SimpleObject, Debug, Clone, serde::Serialize)]
+#[graphql(complex, name = "Transfer")]
 pub struct Transfer {
+    #[serde(rename = "id")]
+    #[graphql(name = "id")]
     pub id: String,
+    #[serde(rename = "block_height")]
+    #[graphql(name = "blockHeight")]
     pub block_height: i32,
+    #[serde(rename = "from")]
+    #[graphql(name = "from")]
     pub from: String,
+    #[serde(rename = "to")]
+    #[graphql(name = "to")]
     pub to: Option<String>,
+    #[serde(rename = "amount")]
+    #[graphql(name = "amount")]
     pub amount: String,
 }
+impl Transfer { fn _palletide_from_row(row: sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> { Ok(Self {
+id: row.try_get("id")?,
+block_height: row.try_get("block_height")?,
+from: row.try_get("from")?,
+to: row.try_get("to")?,
+amount: row.try_get("amount")?,
+}) } }
+const TRANSFER_COLUMNS: &[QueryColumn] = &[
+QueryColumn { name: "id", column: "id", cast: "TEXT", filterable: true },
+QueryColumn { name: "blockHeight", column: "block_height", cast: "INTEGER", filterable: true },
+QueryColumn { name: "from", column: "from", cast: "TEXT", filterable: false },
+QueryColumn { name: "to", column: "to", cast: "TEXT", filterable: false },
+QueryColumn { name: "amount", column: "amount", cast: "NUMERIC", filterable: false },
+];
 
-/// Query resolvers for the `transfers` table.
 #[derive(Default)]
 pub struct TransferQuery;
-
 #[Object]
 impl TransferQuery {
-    /// List `transfers` rows, newest `id` first. `limit` is clamped to
-    /// `[1, 200]` (default 25); `id` optionally filters to one row.
-    async fn transfers(
-        &self,
-        ctx: &Context<'_>,
-        limit: Option<i32>,
-        id: Option<String>,
-    ) -> async_graphql::Result<Vec<Transfer>> {
+    async fn transfers(&self, ctx: &Context<'_>, limit: Option<i32>, id: Option<String>,
+        filters: Option<Vec<EntityFilter>>, order_by: Option<String>, descending: Option<bool>, after: Option<String>) -> async_graphql::Result<Vec<Transfer>> {
         let pool = ctx.data::<PgPool>()?;
-        let limit = limit.unwrap_or(25).clamp(1, 200) as i64;
-        let rows = match id {
-            Some(id) => {
-                sqlx::query(r#"SELECT "id", "block_height", "from", "to", "amount"::text AS "amount" FROM transfers WHERE "id" = $1 ORDER BY "id" DESC LIMIT $2"#)
-                    .bind(id)
-                    .bind(limit)
-                    .fetch_all(pool)
-                    .await?
-            }
-            None => {
-                sqlx::query(r#"SELECT "id", "block_height", "from", "to", "amount"::text AS "amount" FROM transfers ORDER BY "id" DESC LIMIT $1"#)
-                    .bind(limit)
-                    .fetch_all(pool)
-                    .await?
-            }
-        };
-        Ok(rows
-            .into_iter()
-            .map(|r| Transfer {
-                id: r.get("id"),
-                block_height: r.get("block_height"),
-                from: r.get("from"),
-                to: r.get("to"),
-                amount: r.get("amount"),
-            })
-            .collect())
+        let mut filters = filters.unwrap_or_default();
+        if let Some(id) = id { filters.push(EntityFilter {field: "id".into(), eq: Some(id), ..Default::default()}); }
+        let rows = query_entities(pool, "transfers", r#""id", "block_height", "from", "to", "amount"::text AS "amount""#, TRANSFER_COLUMNS, filters, order_by, descending.unwrap_or(true), after, limit.unwrap_or(25)).await?;
+        Ok(rows.into_iter().map(Transfer::_palletide_from_row).collect::<Result<Vec<_>, _>>()?)
     }
-
-    /// Total number of `transfers` rows.
     async fn transfers_count(&self, ctx: &Context<'_>) -> async_graphql::Result<i64> {
-        let pool = ctx.data::<PgPool>()?;
-        let row = sqlx::query("SELECT count(*) AS n FROM transfers").fetch_one(pool).await?;
-        Ok(row.get("n"))
+        Ok(sqlx::query_scalar(r#"SELECT count(*) FROM "transfers""#).fetch_one(ctx.data::<PgPool>()?).await?)
     }
 }
 
+#[ComplexObject]
+impl Transfer {
+    #[graphql(name = "_cursor")]
+    async fn _palletide_cursor(&self, order_by: Option<String>, descending: Option<bool>) -> async_graphql::Result<String> {
+        encode_cursor(&serde_json::to_value(self)?, TRANSFER_COLUMNS, order_by.as_deref(), descending.unwrap_or(true))
+    }
+}
 /// The combined GraphQL query root: every entity's queries plus the
 /// framework's built-in `indexerStatus`.
 #[derive(MergedObject, Default)]
-pub struct QueryRoot(TransferQuery, StatusQuery);
+pub struct QueryRoot(TransferQuery, PalletideStatusQuery);

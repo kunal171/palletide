@@ -53,6 +53,7 @@ pub mod gen_graphql;
 pub mod gen_rust;
 pub mod gen_sql;
 pub mod gen_upsert;
+pub mod migration;
 pub mod model;
 pub mod parse;
 pub mod scaffold;

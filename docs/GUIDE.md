@@ -359,3 +359,22 @@ Public RPC is the usual bottleneck. In order of impact:
 - [README](https://github.com/kunal171/palletide/blob/main/README.md) — architecture, data-source trade-offs, reorg handling.
 - [RFC 034](rfcs/034-schema-first-codegen.md) — the design behind the codegen and
   builder DX.
+
+## Custom chains and network recovery
+
+`SubxtSource` remains the default alias for Polkadot configuration. Use
+`RpcSource::<YourConfig>::connect_with_config(source_config, chain_config)` for
+custom chains. Implement `ParentHashHeader` on a custom header; standard
+`SubstrateHeader` types already have this adapter. This does not require the
+unreleased upstream `Header::parent_hash()` change.
+
+Configure `SourceConfig::with_fallback_urls(...)` and
+`with_request_timeout(Duration)` for bounded RPC failover. Available endpoints
+must report the same genesis hash. Ended subscriptions are re-established, and
+the processor fills gaps and skips verified replays. The shared config loader
+accepts `RPC_URLS` (comma-separated fallbacks) and `REQUEST_TIMEOUT_MS`.
+`SqdConfig::with_request_timeout(...)` bounds portal HTTP calls. A hybrid source
+uses RPC when a range is ahead of the portal or the portal cannot serve it.
+
+`Processor::run_until` now observes shutdown while waiting for historical data
+as well as live data. The current handler batch finishes atomically first.

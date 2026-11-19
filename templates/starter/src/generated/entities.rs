@@ -31,15 +31,34 @@ impl Transfer {
         E: sqlx::PgExecutor<'e>,
     {
         sqlx::query(
-            r#"INSERT INTO transfers ("id", "block_height", "from", "to", "amount") VALUES ($1, $2, $3, $4, $5::text::numeric) ON CONFLICT ("id") DO UPDATE SET "block_height" = EXCLUDED."block_height", "from" = EXCLUDED."from", "to" = EXCLUDED."to", "amount" = EXCLUDED."amount""#,
+            r#"INSERT INTO "transfers" ("id", "block_height", "from", "to", "amount") VALUES ($1, $2, $3, $4, $5::text::numeric) ON CONFLICT ("id") DO UPDATE SET "block_height" = EXCLUDED."block_height", "from" = EXCLUDED."from", "to" = EXCLUDED."to", "amount" = EXCLUDED."amount""#,
         )
         .bind(&self.id)
-        .bind(&self.block_height)
+        .bind(self.block_height)
         .bind(&self.from)
         .bind(&self.to)
         .bind(&self.amount)
         .execute(executor)
         .await?;
+        Ok(())
+    }
+    /// Bulk upsert rows from one block on the processor connection. IDs must be unique.
+    pub async fn upsert_many(rows: &[Self], connection: &mut sqlx::PgConnection) -> Result<(), sqlx::Error> {
+        let mut ids = std::collections::HashSet::new();
+        for row in rows { if !ids.insert(&row.id) { return Err(sqlx::Error::Protocol("duplicate ID in bulk upsert".into())); } }
+        for chunk in rows.chunks(1000) {
+            let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(r#"INSERT INTO "transfers" ("id", "block_height", "from", "to", "amount") "#);
+            query.push_values(chunk, |mut record, row| {
+                record.push_bind(&row.id);
+                record.push_bind(row.block_height);
+                record.push_bind(&row.from);
+                record.push_bind(&row.to);
+                record.push_bind(&row.amount);
+                record.push_unseparated("::text::numeric");
+            });
+            query.push(r#" ON CONFLICT ("id") DO UPDATE SET "block_height" = EXCLUDED."block_height", "from" = EXCLUDED."from", "to" = EXCLUDED."to", "amount" = EXCLUDED."amount""#);
+            query.build().execute(&mut *connection).await?;
+        }
         Ok(())
     }
 }

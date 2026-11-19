@@ -40,16 +40,29 @@ array (`TEXT[]`) and a `Vec<T>` in Rust.
 
 - `@index` — a non-unique index on the column.
 - `@unique` — a `UNIQUE` constraint.
-- `@derivedFrom` — a virtual reverse relation; it generates **no column** (skipped).
+- `@derivedFrom` — a virtual reverse relation; it generates no storage column
+  and is served by a generated GraphQL resolver.
 
 ## Enums & relations
 
 - `enum` types are stored as `TEXT`; the generated Rust enum round-trips to/from
   its variant name.
 - A field typed as another `@entity` is a **relation stored as that entity's `id`
-  string** — no joins in v1. A list of entities isn't supported (it belongs on the
-  other side via `@derivedFrom`).
+  string** in Rust entities and PostgreSQL. The GraphQL read model resolves the
+  referenced object. Reverse relations use `@derivedFrom(field: "owner")` on a
+  list or singular field; singular results must be unique.
 
 Anything outside this dialect is a **clear error** rather than a silently-wrong
 table. The parser is validated against a real 100+ entity production schema. See
 [RFC 034](../rfcs/034-schema-first-codegen.md) for the design.
+
+## Generation and updates
+
+SQL identifiers are quoted and Rust keywords are escaped (`type` becomes
+`r#type`). Generated framework names and normalized name collisions produce
+clear errors. Generated queries require `serde` with its `derive` feature and
+`serde_json`; scaffolded projects include both dependencies.
+
+Commit the generated `.palletide-schema.json` snapshot and immutable numbered SQL
+migrations. See the [CLI reference](./codegen-cli.md) for schema evolution,
+filters, cursor pagination, relations, and bulk writes.

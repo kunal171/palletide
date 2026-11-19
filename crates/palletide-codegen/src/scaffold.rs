@@ -93,6 +93,8 @@ palletide-graphql = {{ git = "{REPO_GIT}" }}
 palletide-config = {{ git = "{REPO_GIT}" }}
 
 async-graphql = "7"
+serde = {{ version = "1", features = ["derive"] }}
+serde_json = "1"
 async-trait = "0.1"
 tokio = {{ version = "1", features = ["full"] }}
 sqlx = {{ version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres"] }}

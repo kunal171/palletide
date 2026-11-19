@@ -18,6 +18,8 @@
 //! [`GraphqlConfig`]; the server harness and the status query follow.
 
 mod config;
+mod query;
+pub use query::{encode_cursor, query_entities, EntityFilter, QueryColumn};
 mod server;
 mod status;
 

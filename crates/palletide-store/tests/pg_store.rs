@@ -693,12 +693,15 @@ async fn entity_undo_rejects_unattributed_writes_truncate_and_unavailable_histor
         .to_string()
         .contains("pruned"));
     assert_eq!(store.cursor().await.unwrap().unwrap().number, 5);
-    store.rollback_to(2).await.unwrap();
+    assert!(store.rollback_to(2).await.is_err());
+    assert_eq!(store.cursor().await.unwrap().unwrap().number, 5);
+    store.rollback_to(3).await.unwrap();
+    assert_eq!(store.cursor().await.unwrap().unwrap().number, 3);
     let ids: Vec<i32> = sqlx::query_scalar("SELECT id FROM items ORDER BY id")
         .fetch_all(store.pool())
         .await
         .unwrap();
-    assert_eq!(ids, vec![1, 2]);
+    assert_eq!(ids, vec![1, 2, 3]);
     drop_db("entity_bounds").await;
 }
 
@@ -798,12 +801,7 @@ async fn tracking_rejects_unsupported_tables_and_restores_deferrable_relations()
         .unwrap_err()
         .to_string()
         .contains("primary key"));
-    assert!(store
-        .track_table("parents")
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("cascading"));
+    store.track_table("parents").await.unwrap();
     assert!(store.track_table("palletide_block").await.is_err());
     sqlx::query("DROP TABLE cascade_child")
         .execute(store.pool())
@@ -834,4 +832,102 @@ async fn tracking_rejects_unsupported_tables_and_restores_deferrable_relations()
         .unwrap();
     assert_eq!(parents, 0);
     drop_db("entity_relations").await;
+}
+
+#[tokio::test]
+#[ignore = "database: needs Postgres"]
+async fn cascaded_key_changes_and_deletes_restore_registered_children() {
+    let url = make_db("cascade_restore").await;
+    let store = PgStore::connect(StoreConfig::new(&url)).await.unwrap();
+    store.init().await.unwrap();
+    sqlx::raw_sql("CREATE TABLE parents (id INT PRIMARY KEY); CREATE TABLE children (parent INT REFERENCES parents(id) ON UPDATE CASCADE ON DELETE CASCADE, id INT, PRIMARY KEY(parent,id)); INSERT INTO parents VALUES (1); INSERT INTO children VALUES (1, 9)")
+        .execute(store.pool()).await.unwrap();
+    store.track_table("parents").await.unwrap();
+    store.track_table("children").await.unwrap();
+    apply_entity_block(&store, 1, &["UPDATE parents SET id=2"]).await;
+    apply_entity_block(&store, 2, &["DELETE FROM parents"]).await;
+    store.rollback_to(1).await.unwrap();
+    let parent: i32 = sqlx::query_scalar("SELECT parent FROM children")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(parent, 2);
+    store.rollback_to(0).await.unwrap();
+    let parent: i32 = sqlx::query_scalar("SELECT parent FROM children")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(parent, 1);
+    assert_eq!(undo_count(&store).await, 0);
+    drop_db("cascade_restore").await;
+}
+
+#[tokio::test]
+#[ignore = "database: needs Postgres"]
+async fn partition_root_tracks_row_movement_and_rejects_volatile_tables() {
+    let url = make_db("partition_restore").await;
+    let store = PgStore::connect(StoreConfig::new(&url)).await.unwrap();
+    store.init().await.unwrap();
+    sqlx::raw_sql("CREATE TABLE events (height INT, id TEXT, amount INT, PRIMARY KEY(height,id)) PARTITION BY RANGE(height); CREATE TABLE events_low PARTITION OF events FOR VALUES FROM (0) TO (10); CREATE TABLE events_high PARTITION OF events FOR VALUES FROM (10) TO (20); CREATE UNLOGGED TABLE volatile_data (id INT PRIMARY KEY)")
+        .execute(store.pool()).await.unwrap();
+    assert!(store.track_table("volatile_data").await.is_err());
+    assert!(store.track_table("events_low").await.is_err());
+    store.track_table("events").await.unwrap();
+    apply_entity_block(&store, 1, &["INSERT INTO events VALUES (1,'a',10)"]).await;
+    apply_entity_block(
+        &store,
+        2,
+        &["UPDATE events SET height=11, amount=20 WHERE id='a'"],
+    )
+    .await;
+    store.rollback_to(1).await.unwrap();
+    let row: (i32, i32) = sqlx::query_as("SELECT height,amount FROM events")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(row, (1, 10));
+    store.rollback_to(0).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM events")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    drop_db("partition_restore").await;
+}
+
+#[tokio::test]
+#[ignore = "database: needs Postgres"]
+async fn schema_checkpoint_is_atomic_and_later_history_remains_reversible() {
+    let url = make_db("schema_checkpoint").await;
+    let store = PgStore::connect(StoreConfig::new(&url)).await.unwrap();
+    store.init().await.unwrap();
+    sqlx::raw_sql(
+        "CREATE TABLE items (id INT PRIMARY KEY, amount INT); INSERT INTO items VALUES(1,10)",
+    )
+    .execute(store.pool())
+    .await
+    .unwrap();
+    store.track_table("items").await.unwrap();
+    apply_entity_block(&store, 1, &["UPDATE items SET amount=20"]).await;
+    assert!(store
+        .apply_schema_change("ALTER TABLE items ADD COLUMN note TEXT; SELECT 1/0")
+        .await
+        .is_err());
+    assert_eq!(undo_count(&store).await, 1);
+    store.rollback_to(0).await.unwrap();
+    apply_entity_block(&store, 2, &["UPDATE items SET amount=20"]).await;
+    store
+        .apply_schema_change("ALTER TABLE items ADD COLUMN note TEXT")
+        .await
+        .unwrap();
+    assert_eq!(undo_count(&store).await, 0);
+    apply_entity_block(&store, 3, &["UPDATE items SET note='new', amount=30"]).await;
+    store.rollback_to(2).await.unwrap();
+    let row: (i32, Option<String>) = sqlx::query_as("SELECT amount,note FROM items")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(row, (20, None));
+    assert!(store.rollback_to(1).await.is_err());
+    drop_db("schema_checkpoint").await;
 }

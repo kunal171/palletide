@@ -39,8 +39,8 @@ fn prefix_bytes(prefix: u16) -> Vec<u8> {
     } else {
         // 2-byte form: see the SS58 spec's "simple/full" address types.
         let ident = prefix & 0b0011_1111_1111_1111; // 14 bits
-        let first = 0b0100_0000 | ((ident >> 8) as u8);
-        let second = (ident & 0xFF) as u8;
+        let first = 0b0100_0000 | (((ident & 0x00fc) >> 2) as u8);
+        let second = ((ident >> 8) as u8) | (((ident & 3) as u8) << 6);
         vec![first, second]
     }
 }
@@ -151,5 +151,10 @@ mod tests {
         let mut a20 = vec![0x04];
         a20.extend_from_slice(&[0u8; 20]);
         assert_eq!(account_from_address_bytes(&a20), None);
+    }
+    #[test]
+    fn two_byte_prefix_matches_substrate_layout() {
+        assert_eq!(prefix_bytes(128), vec![0x60, 0x00]);
+        assert_eq!(prefix_bytes(1000), vec![0x7a, 0x03]);
     }
 }

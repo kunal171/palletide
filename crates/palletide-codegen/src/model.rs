@@ -5,6 +5,8 @@
 //! the GraphQL AST means the generators never touch parser types, and the model
 //! can be built by hand in tests.
 
+use serde::{Deserialize, Serialize};
+
 /// A scalar field type supported by the v1 schema dialect.
 ///
 /// The mapping to Rust and Postgres is fixed here so every generator agrees.
@@ -24,7 +26,7 @@
 /// \* `BigInt` is carried as a **decimal string** rather than `i64`: chain
 /// balances routinely exceed `i64::MAX`, and this is what the existing examples
 /// already do (`amount` bound as `$n::text::numeric`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Scalar {
     Id,
     String,
@@ -98,7 +100,7 @@ impl Scalar {
 }
 
 /// What a field holds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FieldType {
     /// A built-in scalar.
     Scalar(Scalar),
@@ -119,7 +121,7 @@ pub enum FieldType {
 }
 
 /// One field of an entity.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Field {
     /// Field name as written in the schema (camelCase by GraphQL convention).
     pub name: String,
@@ -165,20 +167,23 @@ impl Field {
 }
 
 /// A user-defined enum in the schema. Values are stored as `TEXT`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnumDef {
     pub name: String,
     pub values: Vec<String>,
 }
 
 /// One `@entity` type → one table.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entity {
     /// Type name as written (PascalCase by convention), e.g. `UserProfile`.
     pub name: String,
     /// The table name (snake_case + pluralised), e.g. `user_profiles`.
     pub table: String,
     pub fields: Vec<Field>,
+    /// Virtual reverse relations resolved by the generated GraphQL API.
+    #[serde(default)]
+    pub derived: Vec<DerivedRelation>,
 }
 
 impl Entity {
@@ -189,7 +194,7 @@ impl Entity {
 }
 
 /// The whole parsed schema: every entity and enum.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Schema {
     pub entities: Vec<Entity>,
     pub enums: Vec<EnumDef>,
@@ -314,5 +319,35 @@ mod tests {
         // v1: a relation is the referenced entity's id, stored as TEXT.
         assert_eq!(f.rust_type(), "String");
         assert_eq!(f.pg_type(), "TEXT");
+    }
+}
+
+/// A reverse relation stored on a different entity's foreign-key field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DerivedRelation {
+    pub name: String,
+    pub target: String,
+    pub field: String,
+    #[serde(default = "default_many")]
+    pub many: bool,
+    #[serde(default)]
+    pub nullable: bool,
+}
+fn default_many() -> bool {
+    true
+}
+
+/// Escape Rust keywords without changing SQL or GraphQL field names.
+pub fn rust_ident(name: &str) -> String {
+    match name {
+        "Self" => "SelfEntity".into(),
+        "self" | "super" | "crate" => format!("{name}_"),
+        "as" | "async" | "await" | "break" | "const" | "continue" | "dyn" | "else" | "enum"
+        | "extern" | "false" | "fn" | "for" | "if" | "impl" | "in" | "let" | "loop" | "match"
+        | "mod" | "move" | "mut" | "pub" | "ref" | "return" | "static" | "struct" | "trait"
+        | "true" | "type" | "unsafe" | "use" | "where" | "while" | "abstract" | "become"
+        | "box" | "do" | "final" | "macro" | "override" | "priv" | "typeof" | "unsized"
+        | "virtual" | "yield" | "try" | "gen" => format!("r#{name}"),
+        _ => name.to_string(),
     }
 }

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 - Validate chain continuity, skip verified replays, reject unverifiable fork ancestors, and fill live gaps.
 - Correct two-byte SS58 prefixes and normalize portal account/amount values without rounding large numbers.

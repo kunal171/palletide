@@ -17,7 +17,7 @@ You need Rust 1.96+ and Docker for PostgreSQL.
 Install the CLI from crates.io:
 
 ```bash
-cargo install palletide-codegen --version 0.5.0 --locked
+cargo install palletide-codegen --version 0.5.1 --locked
 ```
 
 Create and run an indexer:

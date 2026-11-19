@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 description = "Typed, layered (TOML + env) configuration loader for palletide indexers."
 
 [dependencies]

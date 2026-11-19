@@ -38,7 +38,7 @@ Accounts are rendered as **SS58** (`5…`) addresses, just like block explorers.
 Requires Rust 1.96 or newer. Install from crates.io:
 
 ```bash
-cargo install palletide-codegen --version 0.5.0 --locked
+cargo install palletide-codegen --version 0.5.1 --locked
 palletide-codegen --help
 ```
 

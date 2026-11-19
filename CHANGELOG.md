@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- Include a dedicated README in all seven crates so crates.io displays installation and usage documentation.
+
 ## 0.5.0
 
 - Validate chain continuity, skip verified replays, reject unverifiable fork ancestors, and fill live gaps.

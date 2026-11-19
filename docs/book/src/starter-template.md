@@ -10,7 +10,7 @@ edit the schema and handler to index what you need.
 Requires Rust 1.96 or newer. Install from crates.io:
 
 ```bash
-cargo install palletide-codegen --version 0.5.0 --locked
+cargo install palletide-codegen --version 0.5.1 --locked
 palletide-codegen --help
 ```
 
